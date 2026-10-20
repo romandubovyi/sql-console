@@ -4,6 +4,7 @@ export const QUERIES_COLLECTION = 'queries';
 export const PREFERENCES_COLLECTION = 'preferences';
 export const UNTITLED_QUERY = 'Untitled query';
 export const MAX_VERSIONS = 100;
+export const MAX_DESCRIPTION = 2500;
 
 export interface QueryVersion {
   sql: string;
@@ -13,6 +14,7 @@ export interface QueryVersion {
 export interface QueryDocument {
   title: string;
   sql: string;
+  description: string;
   versions: QueryVersion[];
 }
 
@@ -20,6 +22,7 @@ export interface QueryItem {
   id: string;
   title: string;
   sql: string;
+  description: string;
   versions: QueryVersion[];
   createdAt: string;
   updatedAt: string;
@@ -31,28 +34,24 @@ export interface PreferencesDocument {
 }
 
 export function emptyQuery(): QueryDocument {
-  return { title: UNTITLED_QUERY, sql: '', versions: [] };
+  return { title: UNTITLED_QUERY, sql: '', description: '', versions: [] };
 }
 
-export function initialVersionPick(count: number): { focus: number; anchor: number | null } {
-  if (count <= 1) return { focus: 0, anchor: null };
-  return { focus: 0, anchor: 1 };
+export function limitDescription(value: string): string {
+  return value.length <= MAX_DESCRIPTION ? value : value.slice(0, MAX_DESCRIPTION);
 }
 
-/** Left is the older save. Right is the newer save. A missing anchor compares against empty. */
-export function versionSides(
-  focus: number,
-  anchor: number | null,
-  count: number,
-): { olderIndex: number | null; newerIndex: number } {
-  if (count <= 0) return { olderIndex: null, newerIndex: 0 };
-  const safeFocus = clampIndex(focus, count);
-  if (anchor === null || anchor === safeFocus) return { olderIndex: null, newerIndex: safeFocus };
-  const safeAnchor = clampIndex(anchor, count);
-  return {
-    olderIndex: Math.max(safeFocus, safeAnchor),
-    newerIndex: Math.min(safeFocus, safeAnchor),
-  };
+/** Newest save on the right, the save before it on the left. One save compares with empty. */
+export function initialVersionPick(count: number): { base: number | null; head: number } {
+  if (count <= 1) return { base: null, head: 0 };
+  return { base: 1, head: 0 };
+}
+
+/** Compare `index` with the save immediately before it. The oldest save compares with empty. */
+export function compareWithPrevious(index: number, count: number): { base: number | null; head: number } {
+  if (count <= 0) return { base: null, head: 0 };
+  const head = clampIndex(index, count);
+  return { base: head + 1 < count ? head + 1 : null, head };
 }
 
 function clampIndex(index: number, count: number): number {
@@ -67,10 +66,17 @@ export function appendVersion(versions: QueryVersion[], sql: string, savedAt: st
   return [{ sql, savedAt }, ...versions].slice(0, MAX_VERSIONS);
 }
 
-export function queryIsDirty(stored: Pick<QueryItem, 'title' | 'sql' | 'versions'> | null, title: string, sql: string): boolean {
+export function queryIsDirty(
+  stored: Pick<QueryItem, 'title' | 'sql' | 'description' | 'versions'> | null,
+  title: string,
+  sql: string,
+  description: string,
+): boolean {
   if (!stored) return false;
   const nextTitle = title.trim() || UNTITLED_QUERY;
-  if (stored.title !== nextTitle || stored.sql !== sql) return true;
+  if (stored.title !== nextTitle || stored.sql !== sql || stored.description !== limitDescription(description)) {
+    return true;
+  }
   if (sql.trim() === '') return false;
   return stored.versions[0]?.sql !== sql;
 }
@@ -88,6 +94,7 @@ export function normalizeQuery(document: unknown): QueryDocument {
   const record = asRecord(document);
   const title = typeof record?.title === 'string' && record.title.trim() ? record.title.trim() : UNTITLED_QUERY;
   const sql = typeof record?.sql === 'string' ? record.sql : '';
+  const description = limitDescription(typeof record?.description === 'string' ? record.description : '');
   const versions = Array.isArray(record?.versions)
     ? record.versions.flatMap(version => {
         const item = asRecord(version);
@@ -95,7 +102,7 @@ export function normalizeQuery(document: unknown): QueryDocument {
         return [{ sql: item.sql, savedAt: item.savedAt }];
       }).slice(0, MAX_VERSIONS)
     : [];
-  return { title, sql, versions };
+  return { title, sql, description, versions };
 }
 
 export function normalizePreferences(document: unknown): PreferencesDocument {
@@ -112,6 +119,7 @@ export function toQueryItem(stored: PluginCollectionDocument<unknown>): QueryIte
     id: stored.id,
     title: document.title,
     sql: document.sql,
+    description: document.description,
     versions: document.versions,
     createdAt: stored.createdAt,
     updatedAt: stored.updatedAt,

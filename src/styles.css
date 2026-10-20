@@ -271,6 +271,20 @@ select {
   line-height: 1.2;
 }
 
+.editor-foot-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.description-count {
+  font-variant-numeric: tabular-nums;
+}
+
+.description-count[data-full='true'] {
+  color: var(--danger);
+}
+
 .toolbar-spacer {
   flex: 1;
 }
@@ -513,8 +527,13 @@ td {
   cursor: pointer;
 }
 
-.details-button:hover {
+.details-button:hover,
+.details-button[aria-pressed='true'] {
   color: var(--foreground);
+}
+
+.details-button[aria-pressed='true'] {
+  font-weight: 600;
 }
 
 .history-note {
@@ -522,29 +541,6 @@ td {
   padding: 0.15rem 0.75rem;
   color: var(--muted-foreground);
   font-size: 0.6875rem;
-}
-
-.history-controls {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.5rem 0.75rem;
-  align-items: center;
-  padding: 0.35rem 0.75rem;
-}
-
-.history-controls label {
-  display: inline-flex;
-  gap: 0.35rem;
-  align-items: center;
-  color: var(--muted-foreground);
-  font-size: 0.8125rem;
-}
-
-.history-controls select {
-  border: 1px solid var(--border);
-  border-radius: 0.4rem;
-  background: var(--background);
-  padding: 0.25rem 0.4rem;
 }
 
 .history-panel {
@@ -591,20 +587,10 @@ td {
   color: var(--sidebar-accent-foreground);
 }
 
-.version-option[data-side='newer'] {
+.version-option[aria-current='true'] {
   background: var(--sidebar-accent);
   color: var(--sidebar-accent-foreground);
   font-weight: 500;
-}
-
-.version-option[data-side='older'] {
-  box-shadow: inset 2px 0 0 var(--muted-foreground);
-}
-
-.version-side {
-  color: var(--muted-foreground);
-  font-size: 0.6875rem;
-  font-weight: 400;
 }
 
 .version-diff {
@@ -624,16 +610,36 @@ td {
   font-size: 0.75rem;
 }
 
-.version-diff-head > span {
+.version-diff-pane {
   display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
   padding: 0.35rem 0.7rem;
 }
 
-.version-diff-head > span + span {
+.version-diff-pane + .version-diff-pane {
   border-left: 1px solid var(--border);
+}
+
+.version-diff-pane label {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.version-diff-pane select {
+  min-width: 0;
+  max-width: 14rem;
+  border: 1px solid var(--border);
+  border-radius: 0.4rem;
+  background: var(--background);
+  color: var(--foreground);
+  padding: 0.2rem 0.35rem;
+  font: inherit;
 }
 
 .version-diff-head .ghost {
@@ -657,21 +663,34 @@ td {
   min-width: 100%;
 }
 
-.version-diff-cell {
-  margin: 0;
-  padding: 0 0.7rem;
-  white-space: pre;
+.version-diff-side {
+  display: grid;
+  grid-template-columns: 2.75rem minmax(0, 1fr);
+  min-width: 0;
 }
 
-.version-diff-cell + .version-diff-cell {
+.version-diff-side + .version-diff-side {
   border-left: 1px solid var(--border);
 }
 
-.version-diff-cell.add {
+.version-diff-gutter {
+  padding: 0 0.45rem 0 0.35rem;
+  color: var(--muted-foreground);
+  text-align: right;
+  user-select: none;
+}
+
+.version-diff-cell {
+  margin: 0;
+  padding: 0 0.7rem 0 0.15rem;
+  white-space: pre;
+}
+
+.version-diff-side.add {
   background: color-mix(in oklch, oklch(0.72 0.17 145) 22%, transparent);
 }
 
-.version-diff-cell.remove {
+.version-diff-side.remove {
   background: color-mix(in oklch, var(--danger) 18%, transparent);
 }
 

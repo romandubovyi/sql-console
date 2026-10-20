@@ -2,13 +2,16 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
   appendVersion,
+  compareWithPrevious,
   initialVersionPick,
   landingQuery,
+  limitDescription,
   listAllQueries,
+  MAX_DESCRIPTION,
   MAX_VERSIONS,
+  normalizeQuery,
   queryIsDirty,
   UNTITLED_QUERY,
-  versionSides,
 } from './queries.ts';
 
 describe('appendVersion', () => {
@@ -29,19 +32,19 @@ describe('appendVersion', () => {
   });
 });
 
-describe('versionSides', () => {
-  it('starts with the newest save on the right and the previous save on the left', () => {
-    assert.deepEqual(initialVersionPick(3), { focus: 0, anchor: 1 });
-    assert.deepEqual(versionSides(0, 1, 3), { olderIndex: 1, newerIndex: 0 });
+describe('compareWithPrevious', () => {
+  it('starts with the newest save compared to the one before it', () => {
+    assert.deepEqual(initialVersionPick(3), { base: 1, head: 0 });
+    assert.deepEqual(compareWithPrevious(0, 3), { base: 1, head: 0 });
   });
 
-  it('orders any two clicked saves from older to newer', () => {
-    assert.deepEqual(versionSides(3, 0, 5), { olderIndex: 3, newerIndex: 0 });
+  it('compares a chosen save with the immediately previous save', () => {
+    assert.deepEqual(compareWithPrevious(2, 5), { base: 3, head: 2 });
   });
 
-  it('compares a single save with empty', () => {
-    assert.deepEqual(initialVersionPick(1), { focus: 0, anchor: null });
-    assert.deepEqual(versionSides(0, null, 1), { olderIndex: null, newerIndex: 0 });
+  it('compares the oldest save with empty', () => {
+    assert.deepEqual(initialVersionPick(1), { base: null, head: 0 });
+    assert.deepEqual(compareWithPrevious(4, 5), { base: null, head: 4 });
   });
 });
 
@@ -62,14 +65,34 @@ describe('landingQuery', () => {
 });
 
 describe('queryIsDirty', () => {
-  const stored = { title: 'Revenue', sql: 'SELECT 1', versions: [{ sql: 'SELECT 1', savedAt: '2026-10-20T00:00:00Z' }] };
+  const stored = {
+    title: 'Revenue',
+    sql: 'SELECT 1',
+    description: '',
+    versions: [{ sql: 'SELECT 1', savedAt: '2026-10-20T00:00:00Z' }],
+  };
 
   it('is clean when the editor matches the latest save', () => {
-    assert.equal(queryIsDirty(stored, 'Revenue', 'SELECT 1'), false);
+    assert.equal(queryIsDirty(stored, 'Revenue', 'SELECT 1', ''), false);
   });
 
   it('is dirty when the text changed after the last save', () => {
-    assert.equal(queryIsDirty({ ...stored, sql: 'SELECT 2', versions: stored.versions }, 'Revenue', 'SELECT 2'), true);
+    assert.equal(
+      queryIsDirty({ ...stored, sql: 'SELECT 2', versions: stored.versions }, 'Revenue', 'SELECT 2', ''),
+      true,
+    );
+  });
+
+  it('is dirty when only the description changed', () => {
+    assert.equal(queryIsDirty(stored, 'Revenue', 'SELECT 1', 'Daily revenue'), true);
+  });
+});
+
+describe('description', () => {
+  it('keeps a missing description empty and clamps the stored text', () => {
+    assert.equal(normalizeQuery({ title: 'Revenue', sql: 'SELECT 1' }).description, '');
+    assert.equal(limitDescription('a'.repeat(MAX_DESCRIPTION + 20)).length, MAX_DESCRIPTION);
+    assert.equal(normalizeQuery({ description: 'b'.repeat(MAX_DESCRIPTION + 5) }).description.length, MAX_DESCRIPTION);
   });
 });
 

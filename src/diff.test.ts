@@ -25,11 +25,11 @@ describe('diffSideBySide', () => {
   it('puts removed and added lines on opposite sides and keeps shared lines level', () => {
     const rows = diffSideBySide('SELECT 1\nFROM events', 'SELECT 2\nFROM events\nLIMIT 10');
     assert.deepEqual(
-      rows.map(row => [row.left.kind, row.left.text, row.right.kind, row.right.text]),
+      rows.map(row => [row.left.kind, row.left.line, row.left.text, row.right.kind, row.right.line, row.right.text]),
       [
-        ['remove', 'SELECT 1', 'add', 'SELECT 2'],
-        ['same', 'FROM events', 'same', 'FROM events'],
-        ['empty', '', 'add', 'LIMIT 10'],
+        ['remove', 1, 'SELECT 1', 'add', 1, 'SELECT 2'],
+        ['same', 2, 'FROM events', 'same', 2, 'FROM events'],
+        ['empty', null, '', 'add', 3, 'LIMIT 10'],
       ],
     );
   });

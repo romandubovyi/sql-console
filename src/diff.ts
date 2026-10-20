@@ -6,6 +6,8 @@ export interface DiffLine {
 export interface DiffCell {
   kind: 'same' | 'add' | 'remove' | 'empty';
   text: string;
+  /** Source line number. Empty padding cells have no number. */
+  line: number | null;
 }
 
 export interface DiffRow {
@@ -50,6 +52,8 @@ export function diffSideBySide(before: string, after: string): DiffRow[] {
   const rows: DiffRow[] = [];
   let removed: string[] = [];
   let added: string[] = [];
+  let leftLine = 1;
+  let rightLine = 1;
 
   const flush = () => {
     const count = Math.max(removed.length, added.length);
@@ -57,8 +61,14 @@ export function diffSideBySide(before: string, after: string): DiffRow[] {
       const left = removed[index];
       const right = added[index];
       rows.push({
-        left: left === undefined ? { kind: 'empty', text: '' } : { kind: 'remove', text: left },
-        right: right === undefined ? { kind: 'empty', text: '' } : { kind: 'add', text: right },
+        left:
+          left === undefined
+            ? { kind: 'empty', text: '', line: null }
+            : { kind: 'remove', text: left, line: leftLine++ },
+        right:
+          right === undefined
+            ? { kind: 'empty', text: '', line: null }
+            : { kind: 'add', text: right, line: rightLine++ },
       });
     }
     removed = [];
@@ -69,8 +79,8 @@ export function diffSideBySide(before: string, after: string): DiffRow[] {
     if (line.kind === 'same') {
       flush();
       rows.push({
-        left: { kind: 'same', text: line.text },
-        right: { kind: 'same', text: line.text },
+        left: { kind: 'same', text: line.text, line: leftLine++ },
+        right: { kind: 'same', text: line.text, line: rightLine++ },
       });
       continue;
     }

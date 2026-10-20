@@ -17,12 +17,17 @@ import {
   PAGE_SIZES,
   type PageSize,
 } from './paging.ts';
+import { MarkdownEditor } from './MarkdownEditor.tsx';
 import { QueryHistory, VersionDiff } from './QueryHistory.tsx';
 import { StorageFields } from './StorageFields.tsx';
 import {
+  appendVersion,
+  compareWithPrevious,
   emptyQuery,
   initialVersionPick,
   landingQuery,
+  limitDescription,
+  MAX_DESCRIPTION,
   listAllQueries,
   normalizePreferences,
   PREFERENCES_COLLECTION,
@@ -30,8 +35,6 @@ import {
   queryIsDirty,
   toQueryItem,
   UNTITLED_QUERY,
-  versionSides,
-  appendVersion,
   type PreferencesDocument,
   type QueryDocument,
   type QueryItem,
@@ -64,6 +67,7 @@ interface Draft {
   id: string;
   title: string;
   sql: string;
+  description: string;
 }
 
 export default function App() {
@@ -127,9 +131,15 @@ function Console({ ctx }: { ctx: PluginContext }) {
   const [selectedId, setSelectedId] = useState('');
   const [title, setTitle] = useState(UNTITLED_QUERY);
   const [sql, setSql] = useState('');
+  const [description, setDescription] = useState('');
+  const [editorMode, setEditorMode] = useState<'sql' | 'description'>('sql');
   const [deleteArmedId, setDeleteArmedId] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [historyPick, setHistoryPick] = useState({ signature: '', focus: 0, anchor: null as number | null });
+  const [historyPick, setHistoryPick] = useState<{ signature: string; base: number | null; head: number }>({
+    signature: '',
+    base: null,
+    head: 0,
+  });
   const [projectId, setProjectId] = useState('');
   const [location, setLocation] = useState('');
   const [storageOptions, setStorageOptions] = useState<readonly BigQueryStorageOption[]>([]);
@@ -144,14 +154,27 @@ function Console({ ctx }: { ctx: PluginContext }) {
   const [notice, setNotice] = useState<Notice | null>(null);
 
   const selected = queries.find(query => query.id === selectedId) ?? null;
+  const versionCount = selected?.versions.length ?? 0;
   const versionSignature = (selected?.versions ?? []).map(version => `${version.savedAt}\n${version.sql}`).join('\n--\n');
-  if (historyPick.signature !== versionSignature) {
-    setHistoryPick({ signature: versionSignature, ...initialVersionPick(selected?.versions.length ?? 0) });
-  }
-  const compared = versionSides(historyPick.focus, historyPick.anchor, selected?.versions.length ?? 0);
+  const versionPick =
+    historyPick.signature === versionSignature
+      ? historyPick
+      : { signature: versionSignature, ...initialVersionPick(versionCount) };
+  if (historyPick.signature !== versionSignature) setHistoryPick(versionPick);
 
   function selectVersion(index: number) {
-    setHistoryPick(current => (index === current.focus ? current : { ...current, anchor: current.focus, focus: index }));
+    setHistoryPick(current => ({ ...current, ...compareWithPrevious(index, versionCount) }));
+  }
+
+  function showQuery(item: QueryItem) {
+    setSelectedId(item.id);
+    setTitle(item.title);
+    setSql(item.sql);
+    setDescription(item.description);
+    setEditorMode('sql');
+    setSession(null);
+    setHistoryOpen(false);
+    setNotice(null);
   }
 
   useEffect(() => {
@@ -191,6 +214,8 @@ function Console({ ctx }: { ctx: PluginContext }) {
         setSelectedId(landing.id);
         setTitle(landing.title);
         setSql(landing.sql);
+        setDescription(landing.description);
+        setEditorMode('sql');
         setQueryState('ready');
       } catch (cause) {
         if (cancelled) return;
@@ -262,10 +287,12 @@ function Console({ ctx }: { ctx: PluginContext }) {
       const current = queriesRef.current.find(query => query.id === draft.id);
       if (!current) return;
       const nextTitle = draft.title.trim() || UNTITLED_QUERY;
-      if (current.title === nextTitle && current.sql === draft.sql) return;
+      const nextDescription = limitDescription(draft.description);
+      if (current.title === nextTitle && current.sql === draft.sql && current.description === nextDescription) return;
       const saved = await ctx.collections<QueryDocument>(QUERIES_COLLECTION).put(draft.id, {
         title: nextTitle,
         sql: draft.sql,
+        description: nextDescription,
         versions: current.versions,
       });
       replaceQuery(toQueryItem(saved));
@@ -275,17 +302,17 @@ function Console({ ctx }: { ctx: PluginContext }) {
 
   useEffect(() => {
     if (queryState !== 'ready' || !selectedId) return;
-    const draft = { id: selectedId, title, sql };
+    const draft = { id: selectedId, title, sql, description };
     const handle = setTimeout(() => {
       void enqueue(() => persistDraft(draft)).catch((cause: unknown) => {
         setNotice({ message: describeError(cause) });
       });
     }, 800);
     return () => clearTimeout(handle);
-  }, [enqueue, persistDraft, queryState, selectedId, sql, title]);
+  }, [description, enqueue, persistDraft, queryState, selectedId, sql, title]);
 
   async function onSave() {
-    const draft = { id: selectedId, title, sql };
+    const draft = { id: selectedId, title, sql, description };
     if (!draft.id) return;
     setSaving(true);
     try {
@@ -296,6 +323,7 @@ function Console({ ctx }: { ctx: PluginContext }) {
         const saved = await ctx.collections<QueryDocument>(QUERIES_COLLECTION).put(draft.id, {
           title: nextTitle,
           sql: draft.sql,
+          description: limitDescription(draft.description),
           versions: appendVersion(current.versions, draft.sql, new Date().toISOString()),
         });
         const item = toQueryItem(saved);
@@ -311,19 +339,14 @@ function Console({ ctx }: { ctx: PluginContext }) {
 
   async function openQuery(id: string) {
     if (id === selectedId) return;
-    const draft = { id: selectedId, title, sql };
+    const draft = { id: selectedId, title, sql, description };
     setDeleteArmedId(null);
-    setHistoryOpen(false);
     try {
       await enqueue(async () => {
         await persistDraft(draft);
         const next = queriesRef.current.find(query => query.id === id);
         if (!next) return;
-        setSelectedId(next.id);
-        setTitle(next.title);
-        setSql(next.sql);
-        setSession(null);
-        setNotice(null);
+        showQuery(next);
       });
     } catch (cause) {
       setNotice({ message: describeError(cause) });
@@ -331,9 +354,8 @@ function Console({ ctx }: { ctx: PluginContext }) {
   }
 
   async function onCreate() {
-    const draft = { id: selectedId, title, sql };
+    const draft = { id: selectedId, title, sql, description };
     setDeleteArmedId(null);
-    setHistoryOpen(false);
     try {
       await enqueue(async () => {
         if (draft.id) await persistDraft(draft);
@@ -341,11 +363,7 @@ function Console({ ctx }: { ctx: PluginContext }) {
         const item = toQueryItem(saved);
         queriesRef.current = [item, ...queriesRef.current];
         setQueries(queriesRef.current);
-        setSelectedId(item.id);
-        setTitle(item.title);
-        setSql(item.sql);
-        setSession(null);
-        setNotice(null);
+        showQuery(item);
       });
     } catch (cause) {
       setNotice({ message: describeError(cause) });
@@ -353,7 +371,7 @@ function Console({ ctx }: { ctx: PluginContext }) {
   }
 
   async function onDelete(id: string) {
-    const draft = { id: selectedId, title, sql };
+    const draft = { id: selectedId, title, sql, description };
     setDeleteArmedId(null);
     try {
       await enqueue(async () => {
@@ -369,11 +387,7 @@ function Console({ ctx }: { ctx: PluginContext }) {
         if (selectedId !== id) return;
         const next = landingQuery(items) ?? items[0];
         if (!next) return;
-        setSelectedId(next.id);
-        setTitle(next.title);
-        setSql(next.sql);
-        setSession(null);
-        setHistoryOpen(false);
+        showQuery(next);
       });
     } catch (cause) {
       setNotice({ message: describeError(cause) });
@@ -382,7 +396,7 @@ function Console({ ctx }: { ctx: PluginContext }) {
 
   const trimmedProject = projectId.trim();
   const runDisabled = running || paging || !trimmedProject || sql.trim().length === 0 || queryState !== 'ready';
-  const saveDisabled = saving || !selected || !queryIsDirty(selected, title, sql);
+  const saveDisabled = saving || !selected || !queryIsDirty(selected, title, sql, description);
 
   async function onRun() {
     if (runDisabled) return;
@@ -607,30 +621,53 @@ function Console({ ctx }: { ctx: PluginContext }) {
             />
           </div>
           <div className="editor-body">
-            {historyOpen && (selected?.versions.length ?? 0) > 0 ? (
+            {historyOpen && versionCount > 0 ? (
               <VersionDiff
                 versions={selected?.versions ?? []}
-                olderIndex={compared.olderIndex}
-                newerIndex={compared.newerIndex}
+                baseIndex={versionPick.base}
+                headIndex={versionPick.head}
+                onBaseChange={base => setHistoryPick(current => ({ ...current, base }))}
+                onHeadChange={head => setHistoryPick(current => ({ ...current, head }))}
                 onUseVersion={nextSql => {
                   setSql(nextSql);
+                  setEditorMode('sql');
                   setHistoryOpen(false);
                 }}
               />
+            ) : editorMode === 'description' ? (
+              <MarkdownEditor value={description} theme={ctx.theme} onChange={setDescription} />
             ) : (
               <SqlEditor value={sql} theme={ctx.theme} onChange={setSql} onRun={() => void onRun()} />
             )}
           </div>
           <div className="editor-foot">
-            <span>Ctrl+Enter or Cmd+Enter</span>
-            <QueryHistory
-              versions={selected?.versions ?? []}
-              open={historyOpen}
-              olderIndex={compared.olderIndex}
-              newerIndex={compared.newerIndex}
-              onOpenChange={setHistoryOpen}
-              onSelect={selectVersion}
-            />
+            <span>{editorMode === 'sql' && !(historyOpen && versionCount > 0) ? 'Ctrl+Enter or Cmd+Enter' : ''}</span>
+            <div className="editor-foot-actions">
+              <button
+                className="details-button"
+                type="button"
+                aria-pressed={editorMode === 'description' && !(historyOpen && versionCount > 0)}
+                onClick={() => {
+                  const overlay = historyOpen && versionCount > 0;
+                  setHistoryOpen(false);
+                  setEditorMode(mode => (overlay || mode !== 'description' ? 'description' : 'sql'));
+                }}
+              >
+                Description
+              </button>
+              {editorMode === 'description' && !(historyOpen && versionCount > 0) ? (
+                <span className="description-count" data-full={description.length >= MAX_DESCRIPTION ? 'true' : undefined}>
+                  {description.length}/{MAX_DESCRIPTION}
+                </span>
+              ) : null}
+              <QueryHistory
+                versions={selected?.versions ?? []}
+                open={historyOpen}
+                headIndex={versionPick.head}
+                onOpenChange={setHistoryOpen}
+                onSelect={selectVersion}
+              />
+            </div>
           </div>
         </section>
 
