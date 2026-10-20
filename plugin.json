@@ -1,0 +1,14 @@
+{
+  "name": "SQL-Console",
+  "description": "Run a read-only BigQuery query on a Storage in this project and preview the rows.",
+  "delivery": {
+    "type": "remote",
+    "url": "https://romandubovyi.github.io/sql-console/"
+  },
+  "credentials": [
+    {
+      "id": "google-service-account",
+      "scopes": ["https://www.googleapis.com/auth/bigquery.readonly"]
+    }
+  ]
+}
