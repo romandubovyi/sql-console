@@ -18,6 +18,7 @@ import {
   type PageSize,
 } from './paging.ts';
 import { QueryHistory } from './QueryHistory.tsx';
+import { StorageFields } from './StorageFields.tsx';
 import {
   emptyQuery,
   landingQuery,
@@ -34,6 +35,7 @@ import {
   type QueryItem,
 } from './queries.ts';
 import { SqlEditor } from './SqlEditor.tsx';
+import { loadBigQueryStorages, type BigQueryStorageOption } from './storages.ts';
 
 const SIDEBAR_MIN = 180;
 const SIDEBAR_MAX = 480;
@@ -127,6 +129,9 @@ function Console({ ctx }: { ctx: PluginContext }) {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [projectId, setProjectId] = useState('');
   const [location, setLocation] = useState('');
+  const [storageOptions, setStorageOptions] = useState<readonly BigQueryStorageOption[]>([]);
+  const [storageStatus, setStorageStatus] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [storageUnread, setStorageUnread] = useState(0);
   const [preferencesReady, setPreferencesReady] = useState(false);
   const [pageSize, setPageSize] = useState<PageSize>(DEFAULT_PAGE_SIZE);
   const [running, setRunning] = useState(false);
@@ -207,6 +212,24 @@ function Console({ ctx }: { ctx: PluginContext }) {
   useEffect(() => {
     document.getElementById(`query-${selectedId}`)?.scrollIntoView({ block: 'nearest' });
   }, [selectedId, queryState]);
+
+  useEffect(() => {
+    let cancelled = false;
+    loadBigQueryStorages(ctx.owox)
+      .then(catalog => {
+        if (cancelled) return;
+        setStorageOptions(catalog.options);
+        setStorageUnread(catalog.unread);
+        setStorageStatus('ready');
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setStorageStatus('error');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [ctx]);
 
   const replaceQuery = useCallback((item: QueryItem) => {
     queriesRef.current = queriesRef.current.map(query => (query.id === item.id ? item : query));
@@ -564,26 +587,15 @@ function Console({ ctx }: { ctx: PluginContext }) {
               <Play size={14} aria-hidden="true" />
               {running ? 'Running…' : 'Run'}
             </button>
-            <label className="page-size">
-              Project
-              <input
-                className="project-input"
-                aria-label="GCP project id"
-                value={projectId}
-                placeholder="GCP project"
-                onChange={event => setProjectId(event.target.value)}
-              />
-            </label>
-            <label className="page-size">
-              Location
-              <input
-                className="location-input"
-                aria-label="BigQuery location"
-                value={location}
-                placeholder="autodetect"
-                onChange={event => setLocation(event.target.value)}
-              />
-            </label>
+            <StorageFields
+              projectId={projectId}
+              location={location}
+              options={storageOptions}
+              status={storageStatus}
+              unread={storageUnread}
+              onProjectId={setProjectId}
+              onLocation={setLocation}
+            />
             <span className="toolbar-spacer" />
             <span className="dm-muted">Ctrl+Enter or Cmd+Enter</span>
           </div>
@@ -684,7 +696,10 @@ function Console({ ctx }: { ctx: PluginContext }) {
               </p>
             ) : null}
             {!trimmedProject && queryState === 'ready' ? (
-              <p className="empty-note">Enter the GCP project id for the plugin Credential. Jobs run in that project.</p>
+              <p className="empty-note">
+                Choose a BigQuery storage from Project or Location, or type the GCP project id. Jobs run in that
+                project.
+              </p>
             ) : null}
             {session && session.columns.length === 0 ? <p className="empty-note">Query finished and returned no columns.</p> : null}
             {session && session.columns.length > 0 ? (
