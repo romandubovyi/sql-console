@@ -9,6 +9,7 @@ import {
 } from './bigquery.ts';
 import { CreateDataMart } from './CreateDataMart.tsx';
 import { createSqlDataMart, dataMartPath } from './data-mart.ts';
+import { loadSqlSources, type SqlSource } from './sources.ts';
 import { describeError } from './errors.ts';
 import {
   canGoNext,
@@ -147,6 +148,7 @@ function Console({ ctx }: { ctx: PluginContext }) {
   const [storageOptions, setStorageOptions] = useState<readonly BigQueryStorageOption[]>([]);
   const [storageStatus, setStorageStatus] = useState<'loading' | 'ready' | 'error'>('loading');
   const [storageUnread, setStorageUnread] = useState(0);
+  const [sqlSources, setSqlSources] = useState<readonly SqlSource[]>([]);
   const [preferencesReady, setPreferencesReady] = useState(false);
   const [pageSize, setPageSize] = useState<PageSize>(DEFAULT_PAGE_SIZE);
   const [running, setRunning] = useState(false);
@@ -267,6 +269,20 @@ function Console({ ctx }: { ctx: PluginContext }) {
       .catch(() => {
         if (cancelled) return;
         setStorageStatus('error');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [ctx]);
+
+  useEffect(() => {
+    let cancelled = false;
+    loadSqlSources(ctx.owox)
+      .then(sources => {
+        if (!cancelled) setSqlSources(sources);
+      })
+      .catch(() => {
+        if (!cancelled) setSqlSources([]);
       });
     return () => {
       cancelled = true;
@@ -703,7 +719,7 @@ function Console({ ctx }: { ctx: PluginContext }) {
             ) : editorMode === 'description' ? (
               <MarkdownEditor value={description} theme={ctx.theme} onChange={setDescription} />
             ) : (
-              <SqlEditor value={sql} theme={ctx.theme} onChange={setSql} onRun={() => void onRun()} />
+              <SqlEditor value={sql} theme={ctx.theme} sources={sqlSources} onChange={setSql} onRun={() => void onRun()} />
             )}
           </div>
           <div className="editor-foot">
