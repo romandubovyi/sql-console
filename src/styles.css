@@ -163,14 +163,6 @@ select {
   white-space: nowrap;
 }
 
-.storage-meta {
-  overflow: hidden;
-  color: var(--muted-foreground);
-  font-size: 0.75rem;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .splitter {
   position: relative;
   border: 0;
@@ -247,6 +239,19 @@ select {
   margin: 0.75rem;
 }
 
+.editor-foot {
+  display: flex;
+  position: relative;
+  z-index: 2;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.05rem 0.75rem 0.2rem;
+  color: var(--muted-foreground);
+  font-size: 0.6875rem;
+  line-height: 1.2;
+}
+
 .toolbar-spacer {
   flex: 1;
 }
@@ -290,6 +295,21 @@ button:disabled {
   border-radius: 0.4rem;
   background: var(--background);
   padding: 0.25rem 0.4rem;
+}
+
+.page-size.preview-meta,
+.preview-meta {
+  color: var(--muted-foreground);
+  font-size: 0.6875rem;
+}
+
+.page-size.preview-meta select {
+  padding: 0.1rem 0.25rem;
+  font-size: 0.6875rem;
+}
+
+.preview-toolbar .pager {
+  padding: 0.15rem 0.35rem;
 }
 
 .table-wrap {
@@ -462,10 +482,29 @@ td {
 }
 
 .history {
-  border-bottom: 1px solid var(--border);
+  position: static;
 }
 
-.history-bar,
+.details-button {
+  border: 0;
+  background: transparent;
+  padding: 0.1rem 0.15rem;
+  color: var(--muted-foreground);
+  font: inherit;
+  cursor: pointer;
+}
+
+.details-button:hover {
+  color: var(--foreground);
+}
+
+.history-note {
+  margin: 0;
+  padding: 0.15rem 0.75rem;
+  color: var(--muted-foreground);
+  font-size: 0.6875rem;
+}
+
 .history-controls {
   display: flex;
   flex-wrap: wrap;
@@ -490,15 +529,26 @@ td {
 }
 
 .history-panel {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 0.35rem);
+  z-index: 5;
   display: grid;
   gap: 0.35rem;
-  padding: 0 0.75rem 0.6rem;
+  width: min(32rem, calc(100% - 1.5rem));
+  max-height: 16rem;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--background);
+  padding: 0.35rem 0 0.5rem;
+  box-shadow: 0 8px 24px color-mix(in oklch, var(--foreground) 12%, transparent);
 }
 
 .diff {
   max-height: 11rem;
   overflow: auto;
-  margin: 0;
+  margin: 0 0.75rem;
   border: 1px solid var(--border);
   border-radius: 0.45rem;
   background: var(--card);

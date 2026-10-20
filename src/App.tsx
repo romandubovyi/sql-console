@@ -533,9 +533,6 @@ function Console({ ctx }: { ctx: PluginContext }) {
                     onClick={() => void openQuery(query.id)}
                   >
                     <span className="storage-title">{query.title}</span>
-                    <span className="storage-meta">
-                      {query.versions.length === 1 ? '1 version' : `${query.versions.length} versions`}
-                    </span>
                   </button>
                   {deleteArmedId === query.id ? (
                     <button className="danger-text" type="button" onClick={() => void onDelete(query.id)}>
@@ -596,20 +593,21 @@ function Console({ ctx }: { ctx: PluginContext }) {
               onProjectId={setProjectId}
               onLocation={setLocation}
             />
-            <span className="toolbar-spacer" />
-            <span className="dm-muted">Ctrl+Enter or Cmd+Enter</span>
           </div>
-          <QueryHistory
-            versions={selected?.versions ?? []}
-            open={historyOpen}
-            onToggle={() => setHistoryOpen(open => !open)}
-            onUseVersion={nextSql => {
-              setSql(nextSql);
-              setHistoryOpen(false);
-            }}
-          />
           <div className="editor-body">
             <SqlEditor value={sql} theme={ctx.theme} onChange={setSql} onRun={() => void onRun()} />
+          </div>
+          <div className="editor-foot">
+            <span>Ctrl+Enter or Cmd+Enter</span>
+            <QueryHistory
+              versions={selected?.versions ?? []}
+              open={historyOpen}
+              onOpenChange={setHistoryOpen}
+              onUseVersion={nextSql => {
+                setSql(nextSql);
+                setHistoryOpen(false);
+              }}
+            />
           </div>
         </section>
 
@@ -629,9 +627,9 @@ function Console({ ctx }: { ctx: PluginContext }) {
           aria-label="Query preview"
           aria-live="polite"
         >
-          <div className="pane-toolbar">
+          <div className="pane-toolbar preview-toolbar">
             <span className="pane-title">Preview</span>
-            <label className="page-size">
+            <label className="page-size preview-meta">
               Rows
               <select
                 value={session?.pageSize ?? pageSize}
@@ -654,7 +652,7 @@ function Console({ ctx }: { ctx: PluginContext }) {
               </select>
             </label>
             <button
-              className="ghost"
+              className="ghost pager"
               type="button"
               aria-label="Previous page"
               disabled={!session || session.pageIndex === 0 || running || paging}
@@ -662,13 +660,13 @@ function Console({ ctx }: { ctx: PluginContext }) {
                 if (session) void showPage(session.pageIndex - 1, session.pageSize);
               }}
             >
-              <ChevronLeft size={16} aria-hidden="true" />
+              <ChevronLeft size={14} aria-hidden="true" />
             </button>
-            <span className="dm-muted">
+            <span className="preview-meta">
               {session ? `Page ${session.pageIndex + 1}${pages ? ` of ${pages}` : ''}` : 'Page'}
             </span>
             <button
-              className="ghost"
+              className="ghost pager"
               type="button"
               aria-label="Next page"
               disabled={!nextEnabled}
@@ -676,10 +674,10 @@ function Console({ ctx }: { ctx: PluginContext }) {
                 if (session) void showPage(session.pageIndex + 1, session.pageSize);
               }}
             >
-              <ChevronRight size={16} aria-hidden="true" />
+              <ChevronRight size={14} aria-hidden="true" />
             </button>
             <span className="toolbar-spacer" />
-            <span className="dm-muted">
+            <span className="preview-meta">
               {session
                 ? [formatRowRange(session.pageIndex, session.pageSize, session.rows.length, session.totalRows), bytes ? `${bytes} processed` : null]
                     .filter(Boolean)
