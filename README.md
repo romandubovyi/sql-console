@@ -2,7 +2,7 @@
 
 Read-only BigQuery preview inside OWOX Data Marts.
 
-Pick a BigQuery Storage you can already see in the project, write one `SELECT` or `WITH` query, and preview up to 100 rows.
+Pick a BigQuery Storage from the list on the left, write one `SELECT` or `WITH` query, and page through the rows. The row count control sets how many rows each page shows.
 
 The query runs with the Google Service Account Credential you grant when installing the plugin. OWOX keeps that key and attaches a `bigquery.readonly` token to requests to `*.googleapis.com`. The Storage's own saved key is not used.
 

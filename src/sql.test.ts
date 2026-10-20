@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { PREVIEW_LIMIT, prepareReadOnlyQuery } from './sql.ts';
+import { prepareReadOnlyQuery } from './sql.ts';
 
 function sqlOf(input: string): string {
   const prepared = prepareReadOnlyQuery(input);
@@ -14,11 +14,8 @@ function errorOf(input: string): string {
   return prepared.error;
 }
 
-test('wraps a select and caps the preview', () => {
-  assert.equal(
-    sqlOf('SELECT 1 AS example'),
-    `SELECT * FROM (\nSELECT 1 AS example\n) AS sql_console_preview\nLIMIT ${PREVIEW_LIMIT}`,
-  );
+test('keeps a select query as written', () => {
+  assert.equal(sqlOf('SELECT 1 AS example'), 'SELECT 1 AS example');
 });
 
 test('accepts a with query and a trailing semicolon', () => {

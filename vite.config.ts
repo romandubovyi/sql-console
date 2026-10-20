@@ -5,4 +5,8 @@ import { defineConfig } from 'vite'
 export default defineConfig({
   base: '/sql-console/',
   plugins: [react()],
+  build: {
+    // Monaco's editor core is one chunk. The SQL grammar is loaded separately.
+    chunkSizeWarningLimit: 4500,
+  },
 })

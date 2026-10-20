@@ -1,5 +1,3 @@
-export const PREVIEW_LIMIT = 100;
-
 const MAX_SQL_CHARS = 100_000;
 
 const STATEMENT_VERBS = new Set([
@@ -27,7 +25,7 @@ const STATEMENT_VERBS = new Set([
 export type PreparedQuery = { sql: string } | { error: string };
 
 /**
- * Accepts one read-only statement and wraps it so the preview stops at {@link PREVIEW_LIMIT} rows.
+ * Accepts one read-only statement.
  * The Google scope is the real write boundary; this check stops an obvious write before it is sent.
  */
 export function prepareReadOnlyQuery(input: string): PreparedQuery {
@@ -41,13 +39,10 @@ export function prepareReadOnlyQuery(input: string): PreparedQuery {
   const verbError = readOnlyVerbError(stripped);
   if (verbError) return { error: verbError };
 
-  const executable = stripTrailingStatementSemicolon(sql).trim();
-  return {
-    sql: `SELECT * FROM (\n${executable}\n) AS sql_console_preview\nLIMIT ${PREVIEW_LIMIT}`,
-  };
+  return { sql: stripTrailingStatementSemicolon(sql).trim() };
 }
 
-/** Drops one statement-ending semicolon so it is not left inside the preview subquery. */
+/** Drops one statement-ending semicolon so BigQuery receives a single statement. */
 function stripTrailingStatementSemicolon(sql: string): string {
   let index = 0;
   let semicolonAt = -1;

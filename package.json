@@ -1,19 +1,21 @@
 {
   "name": "sql-console",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
     "typecheck": "tsc -b",
     "lint": "oxlint",
-    "test": "node --test src/sql.test.ts src/bigquery.test.ts src/errors.test.ts",
+    "test": "node --test src/sql.test.ts src/bigquery.test.ts src/errors.test.ts src/paging.test.ts",
     "preview": "vite preview"
   },
   "dependencies": {
+    "@monaco-editor/react": "^4.7.0",
     "@owox/plugin-sdk": "^0.39.0",
     "lucide-react": "^1.60.0",
+    "monaco-editor": "^0.57.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1"
   },

@@ -1,4 +1,5 @@
-import { PREVIEW_LIMIT, prepareReadOnlyQuery } from './sql.ts';
+import { DEFAULT_PAGE_SIZE } from './paging.ts';
+import { prepareReadOnlyQuery } from './sql.ts';
 
 const QUERY_WAIT_MS = 20_000;
 const POLL_WAIT_MS = 8_000;
@@ -10,6 +11,8 @@ export interface PreviewTable {
   totalRows: number | null;
   bytesProcessed: string | null;
   jobId: string | null;
+  location: string | null;
+  pageToken: string | null;
 }
 
 export type QueryOutcome =
@@ -24,6 +27,17 @@ interface RunPreviewInput {
   projectId: string;
   location: string | null;
   sql: string;
+  pageSize?: number;
+  signal?: AbortSignal;
+}
+
+interface FetchPageInput {
+  fetchImpl: FetchLike;
+  projectId: string;
+  jobId: string;
+  location: string | null;
+  startIndex: number;
+  pageSize: number;
   signal?: AbortSignal;
 }
 
@@ -68,10 +82,20 @@ export function toPreviewTable(body: Record<string, unknown> | null): PreviewTab
     rows,
     totalRows: parseCount(body?.totalRows),
     bytesProcessed: typeof body?.totalBytesProcessed === 'string' ? body.totalBytesProcessed : null,
-    jobId: typeof asRecord(body?.jobReference)?.jobId === 'string'
-      ? (asRecord(body?.jobReference)?.jobId as string)
-      : null,
+    jobId: jobIdOf(body),
+    location: locationOf(body),
+    pageToken: typeof body?.pageToken === 'string' ? body.pageToken : null,
   };
+}
+
+function jobIdOf(body: Record<string, unknown> | null): string | null {
+  const jobId = asRecord(body?.jobReference)?.jobId;
+  return typeof jobId === 'string' ? jobId : null;
+}
+
+function locationOf(body: Record<string, unknown> | null): string | null {
+  const location = asRecord(body?.jobReference)?.location;
+  return typeof location === 'string' ? location : null;
 }
 
 export function formatCell(value: unknown): string {
@@ -94,6 +118,7 @@ export async function runBigQueryPreview(input: RunPreviewInput): Promise<QueryO
   const prepared = prepareReadOnlyQuery(input.sql);
   if ('error' in prepared) return { status: 'error', message: prepared.error };
 
+  const pageSize = input.pageSize ?? DEFAULT_PAGE_SIZE;
   const projectId = encodeURIComponent(input.projectId);
   const queryUrl = new URL(
     `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/queries`,
@@ -106,7 +131,7 @@ export async function runBigQueryPreview(input: RunPreviewInput): Promise<QueryO
     body: JSON.stringify({
       query: prepared.sql,
       useLegacySql: false,
-      maxResults: PREVIEW_LIMIT,
+      maxResults: pageSize,
       timeoutMs: QUERY_WAIT_MS,
     }),
     signal: input.signal,
@@ -128,7 +153,7 @@ export async function runBigQueryPreview(input: RunPreviewInput): Promise<QueryO
     const resultsUrl = new URL(
       `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/queries/${encodeURIComponent(outcome.jobId)}`,
     );
-    resultsUrl.searchParams.set('maxResults', String(PREVIEW_LIMIT));
+    resultsUrl.searchParams.set('maxResults', String(pageSize));
     resultsUrl.searchParams.set('timeoutMs', String(POLL_WAIT_MS));
     const location = outcome.location ?? input.location;
     if (location) resultsUrl.searchParams.set('location', location);
@@ -144,6 +169,30 @@ export async function runBigQueryPreview(input: RunPreviewInput): Promise<QueryO
   }
 
   return { status: 'incomplete', message: 'Query did not finish in time.' };
+}
+
+export async function fetchResultPage(input: FetchPageInput): Promise<QueryOutcome> {
+  const url = new URL(
+    `https://bigquery.googleapis.com/bigquery/v2/projects/${encodeURIComponent(input.projectId)}/queries/${encodeURIComponent(input.jobId)}`,
+  );
+  url.searchParams.set('startIndex', String(input.startIndex));
+  url.searchParams.set('maxResults', String(input.pageSize));
+  url.searchParams.set('timeoutMs', String(POLL_WAIT_MS));
+  if (input.location) url.searchParams.set('location', input.location);
+
+  const response = await input.fetchImpl(url, {
+    headers: { Accept: 'application/json' },
+    signal: input.signal,
+  });
+  const body = await readBody(response);
+  if (!response.ok) {
+    return { status: 'error', message: errorText(asRecord(body)) ?? `BigQuery answered ${response.status}` };
+  }
+  const outcome = interpretQueryBody(body);
+  if (outcome.status === 'pending') {
+    return { status: 'incomplete', message: 'Query did not finish in time.' };
+  }
+  return outcome;
 }
 
 async function cancelJob(input: RunPreviewInput, jobId: string, location: string | null): Promise<void> {
