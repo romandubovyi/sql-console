@@ -1,6 +1,6 @@
 import { connect, exactCredential, type PluginContext } from '@owox/plugin-sdk';
-import { ChevronLeft, ChevronRight, Play } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { ChevronLeft, ChevronRight, Play, Plus, Save, Trash2 } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   fetchResultPage,
   formatBytes,
@@ -17,8 +17,23 @@ import {
   PAGE_SIZES,
   type PageSize,
 } from './paging.ts';
+import { QueryHistory } from './QueryHistory.tsx';
+import {
+  emptyQuery,
+  landingQuery,
+  listAllQueries,
+  normalizePreferences,
+  PREFERENCES_COLLECTION,
+  QUERIES_COLLECTION,
+  queryIsDirty,
+  toQueryItem,
+  UNTITLED_QUERY,
+  appendVersion,
+  type PreferencesDocument,
+  type QueryDocument,
+  type QueryItem,
+} from './queries.ts';
 import { SqlEditor } from './SqlEditor.tsx';
-import { loadBigQueryStorages, type BigQueryStorageOption } from './storages.ts';
 
 const SIDEBAR_MIN = 180;
 const SIDEBAR_MAX = 480;
@@ -39,6 +54,12 @@ interface ResultSession {
 
 interface Notice {
   message: string;
+}
+
+interface Draft {
+  id: string;
+  title: string;
+  sql: string;
 }
 
 export default function App() {
@@ -88,20 +109,33 @@ export default function App() {
 function Console({ ctx }: { ctx: PluginContext }) {
   const shellRef = useRef<HTMLDivElement>(null);
   const mainRef = useRef<HTMLDivElement>(null);
+  const queriesRef = useRef<QueryItem[]>([]);
+  const writeRef = useRef(Promise.resolve());
+  const savedPreferences = useRef({ projectId: '', location: '' });
   const [narrow, setNarrow] = useState(() => window.matchMedia('(max-width: 760px)').matches);
   const [sidebarSize, setSidebarSize] = useState(260);
   const [editorSize, setEditorSize] = useState(320);
   const [dragging, setDragging] = useState(false);
-  const [storages, setStorages] = useState<BigQueryStorageOption[]>([]);
-  const [storageState, setStorageState] = useState<'loading' | 'ready' | 'error'>('loading');
-  const [storageError, setStorageError] = useState<string | null>(null);
+  const [loadKey, setLoadKey] = useState(0);
+  const [queryState, setQueryState] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [queryError, setQueryError] = useState<string | null>(null);
+  const [queries, setQueries] = useState<QueryItem[]>([]);
   const [selectedId, setSelectedId] = useState('');
-  const [sql, setSql] = useState('SELECT 1 AS example');
+  const [title, setTitle] = useState(UNTITLED_QUERY);
+  const [sql, setSql] = useState('');
+  const [deleteArmedId, setDeleteArmedId] = useState<string | null>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [projectId, setProjectId] = useState('');
+  const [location, setLocation] = useState('');
+  const [preferencesReady, setPreferencesReady] = useState(false);
   const [pageSize, setPageSize] = useState<PageSize>(DEFAULT_PAGE_SIZE);
   const [running, setRunning] = useState(false);
   const [paging, setPaging] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [session, setSession] = useState<ResultSession | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
+
+  const selected = queries.find(query => query.id === selectedId) ?? null;
 
   useEffect(() => {
     const media = window.matchMedia('(max-width: 760px)');
@@ -112,29 +146,211 @@ function Console({ ctx }: { ctx: PluginContext }) {
 
   useEffect(() => {
     let cancelled = false;
-    loadBigQueryStorages(ctx.owox)
-      .then(items => {
+    const queryCollection = ctx.collections<QueryDocument>(QUERIES_COLLECTION);
+    const preferenceCollection = ctx.collections<PreferencesDocument>(PREFERENCES_COLLECTION);
+    void (async () => {
+      try {
+        const [stored, preferences] = await Promise.all([
+          listAllQueries(queryCollection),
+          preferenceCollection.get('current'),
+        ]);
         if (cancelled) return;
-        setStorages(items);
-        setSelectedId(items.find(item => item.available && item.gcpProjectId)?.id ?? '');
-        setStorageState('ready');
-      })
-      .catch((cause: unknown) => {
+        const prefs = normalizePreferences(preferences?.document);
+        savedPreferences.current = prefs;
+        setProjectId(prefs.projectId);
+        setLocation(prefs.location);
+        setPreferencesReady(true);
+
+        let items = stored.map(item => toQueryItem(item));
+        let landing = landingQuery(items);
+        if (!landing) {
+          const created = await queryCollection.put(crypto.randomUUID(), emptyQuery());
+          if (cancelled) return;
+          landing = toQueryItem(created);
+          items = [...items, landing];
+        }
+        queriesRef.current = items;
+        setQueries(items);
+        setSelectedId(landing.id);
+        setTitle(landing.title);
+        setSql(landing.sql);
+        setQueryState('ready');
+      } catch (cause) {
         if (cancelled) return;
-        setStorageError(describeError(cause));
-        setStorageState('error');
-      });
+        setQueryError(describeError(cause));
+        setQueryState('error');
+      }
+    })();
     return () => {
       cancelled = true;
     };
-  }, [ctx]);
+  }, [ctx, loadKey]);
 
-  const selected = storages.find(item => item.id === selectedId) ?? null;
-  const runDisabled =
-    running || paging || !selected?.available || !selected.gcpProjectId || sql.trim().length === 0;
+  useEffect(() => {
+    if (!preferencesReady) return;
+    const next = { projectId: projectId.trim(), location: location.trim() };
+    if (next.projectId === savedPreferences.current.projectId && next.location === savedPreferences.current.location) {
+      return;
+    }
+    const handle = setTimeout(() => {
+      void ctx
+        .collections<PreferencesDocument>(PREFERENCES_COLLECTION)
+        .put('current', next)
+        .then(() => {
+          savedPreferences.current = next;
+        })
+        .catch((cause: unknown) => setNotice({ message: describeError(cause) }));
+    }, 600);
+    return () => clearTimeout(handle);
+  }, [ctx, location, preferencesReady, projectId]);
+
+  useEffect(() => {
+    document.getElementById(`query-${selectedId}`)?.scrollIntoView({ block: 'nearest' });
+  }, [selectedId, queryState]);
+
+  const replaceQuery = useCallback((item: QueryItem) => {
+    queriesRef.current = queriesRef.current.map(query => (query.id === item.id ? item : query));
+    setQueries(queriesRef.current);
+  }, []);
+
+  const enqueue = useCallback((task: () => Promise<void>): Promise<void> => {
+    const run = writeRef.current.then(task, task);
+    writeRef.current = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }, []);
+
+  const persistDraft = useCallback(
+    async (draft: Draft) => {
+      const current = queriesRef.current.find(query => query.id === draft.id);
+      if (!current) return;
+      const nextTitle = draft.title.trim() || UNTITLED_QUERY;
+      if (current.title === nextTitle && current.sql === draft.sql) return;
+      const saved = await ctx.collections<QueryDocument>(QUERIES_COLLECTION).put(draft.id, {
+        title: nextTitle,
+        sql: draft.sql,
+        versions: current.versions,
+      });
+      replaceQuery(toQueryItem(saved));
+    },
+    [ctx, replaceQuery],
+  );
+
+  useEffect(() => {
+    if (queryState !== 'ready' || !selectedId) return;
+    const draft = { id: selectedId, title, sql };
+    const handle = setTimeout(() => {
+      void enqueue(() => persistDraft(draft)).catch((cause: unknown) => {
+        setNotice({ message: describeError(cause) });
+      });
+    }, 800);
+    return () => clearTimeout(handle);
+  }, [enqueue, persistDraft, queryState, selectedId, sql, title]);
+
+  async function onSave() {
+    const draft = { id: selectedId, title, sql };
+    if (!draft.id) return;
+    setSaving(true);
+    try {
+      await enqueue(async () => {
+        const current = queriesRef.current.find(query => query.id === draft.id);
+        if (!current) return;
+        const nextTitle = draft.title.trim() || UNTITLED_QUERY;
+        const saved = await ctx.collections<QueryDocument>(QUERIES_COLLECTION).put(draft.id, {
+          title: nextTitle,
+          sql: draft.sql,
+          versions: appendVersion(current.versions, draft.sql, new Date().toISOString()),
+        });
+        const item = toQueryItem(saved);
+        replaceQuery(item);
+        if (draft.id === selectedId) setTitle(item.title);
+      });
+    } catch (cause) {
+      setNotice({ message: describeError(cause) });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function openQuery(id: string) {
+    if (id === selectedId) return;
+    const draft = { id: selectedId, title, sql };
+    setDeleteArmedId(null);
+    setHistoryOpen(false);
+    try {
+      await enqueue(async () => {
+        await persistDraft(draft);
+        const next = queriesRef.current.find(query => query.id === id);
+        if (!next) return;
+        setSelectedId(next.id);
+        setTitle(next.title);
+        setSql(next.sql);
+        setSession(null);
+        setNotice(null);
+      });
+    } catch (cause) {
+      setNotice({ message: describeError(cause) });
+    }
+  }
+
+  async function onCreate() {
+    const draft = { id: selectedId, title, sql };
+    setDeleteArmedId(null);
+    setHistoryOpen(false);
+    try {
+      await enqueue(async () => {
+        if (draft.id) await persistDraft(draft);
+        const saved = await ctx.collections<QueryDocument>(QUERIES_COLLECTION).put(crypto.randomUUID(), emptyQuery());
+        const item = toQueryItem(saved);
+        queriesRef.current = [item, ...queriesRef.current];
+        setQueries(queriesRef.current);
+        setSelectedId(item.id);
+        setTitle(item.title);
+        setSql(item.sql);
+        setSession(null);
+        setNotice(null);
+      });
+    } catch (cause) {
+      setNotice({ message: describeError(cause) });
+    }
+  }
+
+  async function onDelete(id: string) {
+    const draft = { id: selectedId, title, sql };
+    setDeleteArmedId(null);
+    try {
+      await enqueue(async () => {
+        if (draft.id && draft.id !== id) await persistDraft(draft);
+        await ctx.collections<QueryDocument>(QUERIES_COLLECTION).delete(id);
+        let items = queriesRef.current.filter(query => query.id !== id);
+        if (items.length === 0) {
+          const saved = await ctx.collections<QueryDocument>(QUERIES_COLLECTION).put(crypto.randomUUID(), emptyQuery());
+          items = [toQueryItem(saved)];
+        }
+        queriesRef.current = items;
+        setQueries(items);
+        if (selectedId !== id) return;
+        const next = landingQuery(items) ?? items[0];
+        if (!next) return;
+        setSelectedId(next.id);
+        setTitle(next.title);
+        setSql(next.sql);
+        setSession(null);
+        setHistoryOpen(false);
+      });
+    } catch (cause) {
+      setNotice({ message: describeError(cause) });
+    }
+  }
+
+  const trimmedProject = projectId.trim();
+  const runDisabled = running || paging || !trimmedProject || sql.trim().length === 0 || queryState !== 'ready';
+  const saveDisabled = saving || !selected || !queryIsDirty(selected, title, sql);
 
   async function onRun() {
-    if (!selected?.gcpProjectId || runDisabled) return;
+    if (runDisabled) return;
     const fetchImpl = credentialFetch(ctx);
     if (!fetchImpl) {
       setSession(null);
@@ -151,15 +367,15 @@ function Console({ ctx }: { ctx: PluginContext }) {
     try {
       const outcome = await runBigQueryPreview({
         fetchImpl,
-        projectId: selected.gcpProjectId,
-        location: selected.location,
+        projectId: trimmedProject,
+        location: location.trim() || null,
         sql,
         pageSize,
         signal: ctx.signal,
       });
       applyOutcome(outcome, {
-        projectId: selected.gcpProjectId,
-        location: selected.location,
+        projectId: trimmedProject,
+        location: location.trim() || null,
         pageIndex: 0,
         pageSize,
       });
@@ -247,6 +463,7 @@ function Console({ ctx }: { ctx: PluginContext }) {
       canGoNext(session.pageIndex, session.pageSize, session.totalRows, session.rows.length),
   );
   const bytes = formatBytes(session?.bytesProcessed ?? null);
+  const visibleQueries = [...queries].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
 
   return (
     <div
@@ -255,43 +472,62 @@ function Console({ ctx }: { ctx: PluginContext }) {
       style={{ ['--sidebar-size' as string]: `${sidebarSize}px`, ['--editor-size' as string]: `${editorSize}px` }}
       data-dragging={dragging ? 'true' : undefined}
     >
-      <aside className="sidebar" aria-label="Storages">
+      <aside className="sidebar" aria-label="Queries">
         <div className="sidebar-header">
-          <strong>Storages</strong>
+          <strong>Queries</strong>
+          <span className="toolbar-spacer" />
+          <button className="icon-button" type="button" aria-label="New query" onClick={() => void onCreate()}>
+            <Plus size={16} aria-hidden="true" />
+          </button>
         </div>
         <div className="sidebar-body">
-          {storageState === 'loading' ? <p className="empty-note dm-muted">Loading storages…</p> : null}
-          {storageState === 'error' ? (
-            <p className="banner" role="alert">
-              {storageError}
-            </p>
+          {queryState === 'loading' ? <p className="empty-note dm-muted">Loading queries…</p> : null}
+          {queryState === 'error' ? (
+            <>
+              <p className="banner" role="alert">
+                {queryError}
+              </p>
+              <button
+                className="ghost"
+                type="button"
+                onClick={() => {
+                  setQueryState('loading');
+                  setLoadKey(key => key + 1);
+                }}
+              >
+                Retry
+              </button>
+            </>
           ) : null}
-          {storageState === 'ready' && storages.length === 0 ? (
-            <p className="empty-note">No BigQuery storages are available in this project.</p>
-          ) : null}
-          {storageState === 'ready' && storages.length > 0 ? (
+          {queryState === 'ready' ? (
             <ul className="storage-list">
-              {storages.map(storage => (
-                <li key={storage.id}>
+              {visibleQueries.map(query => (
+                <li key={query.id} className="query-row" id={`query-${query.id}`}>
                   <button
                     type="button"
                     className="storage-item"
-                    aria-current={storage.id === selectedId ? 'true' : undefined}
-                    disabled={!storage.available}
-                    onClick={() => {
-                      setSelectedId(storage.id);
-                      setSession(null);
-                      setNotice(null);
-                    }}
+                    aria-current={query.id === selectedId ? 'true' : undefined}
+                    onClick={() => void openQuery(query.id)}
                   >
-                    <span className="storage-title">
-                      {storage.title}
-                      {storage.available ? '' : ' (unavailable)'}
-                    </span>
+                    <span className="storage-title">{query.title}</span>
                     <span className="storage-meta">
-                      {storage.gcpProjectId ?? 'No project id'} · {storage.location ?? 'autodetect'}
+                      {query.versions.length === 1 ? '1 version' : `${query.versions.length} versions`}
                     </span>
                   </button>
+                  {deleteArmedId === query.id ? (
+                    <button className="danger-text" type="button" onClick={() => void onDelete(query.id)}>
+                      Delete
+                    </button>
+                  ) : (
+                    <button
+                      className="icon-button"
+                      type="button"
+                      aria-label={`Delete ${query.title}`}
+                      onClick={() => setDeleteArmedId(query.id)}
+                    >
+                      <Trash2 size={14} aria-hidden="true" />
+                    </button>
+                  )}
                 </li>
               ))}
             </ul>
@@ -301,7 +537,7 @@ function Console({ ctx }: { ctx: PluginContext }) {
 
       <Splitter
         orientation={narrow ? 'horizontal' : 'vertical'}
-        label="Resize storages"
+        label="Resize queries"
         value={sidebarSize}
         min={SIDEBAR_MIN}
         max={SIDEBAR_MAX}
@@ -313,15 +549,53 @@ function Console({ ctx }: { ctx: PluginContext }) {
       <div ref={mainRef} className="main-column">
         <section className="editor-pane" aria-label="SQL editor">
           <div className="pane-toolbar">
-            <span className="pane-title">SQL</span>
+            <input
+              className="title-input"
+              aria-label="Query name"
+              value={title}
+              disabled={queryState !== 'ready'}
+              onChange={event => setTitle(event.target.value)}
+            />
+            <button className="ghost" type="button" disabled={saveDisabled} onClick={() => void onSave()}>
+              <Save size={14} aria-hidden="true" />
+              {saving ? 'Saving…' : 'Save'}
+            </button>
             <button className="primary" type="button" disabled={runDisabled} onClick={() => void onRun()}>
               <Play size={14} aria-hidden="true" />
               {running ? 'Running…' : 'Run'}
             </button>
-            <span className="dm-muted">{selected ? selected.title : 'Select a storage'}</span>
+            <label className="page-size">
+              Project
+              <input
+                className="project-input"
+                aria-label="GCP project id"
+                value={projectId}
+                placeholder="GCP project"
+                onChange={event => setProjectId(event.target.value)}
+              />
+            </label>
+            <label className="page-size">
+              Location
+              <input
+                className="location-input"
+                aria-label="BigQuery location"
+                value={location}
+                placeholder="autodetect"
+                onChange={event => setLocation(event.target.value)}
+              />
+            </label>
             <span className="toolbar-spacer" />
             <span className="dm-muted">Ctrl+Enter or Cmd+Enter</span>
           </div>
+          <QueryHistory
+            versions={selected?.versions ?? []}
+            open={historyOpen}
+            onToggle={() => setHistoryOpen(open => !open)}
+            onUseVersion={nextSql => {
+              setSql(nextSql);
+              setHistoryOpen(false);
+            }}
+          />
           <div className="editor-body">
             <SqlEditor value={sql} theme={ctx.theme} onChange={setSql} onRun={() => void onRun()} />
           </div>
@@ -379,9 +653,7 @@ function Console({ ctx }: { ctx: PluginContext }) {
               <ChevronLeft size={16} aria-hidden="true" />
             </button>
             <span className="dm-muted">
-              {session
-                ? `Page ${session.pageIndex + 1}${pages ? ` of ${pages}` : ''}`
-                : 'Page'}
+              {session ? `Page ${session.pageIndex + 1}${pages ? ` of ${pages}` : ''}` : 'Page'}
             </span>
             <button
               className="ghost"
@@ -411,10 +683,8 @@ function Console({ ctx }: { ctx: PluginContext }) {
                 {notice.message}
               </p>
             ) : null}
-            {selected && !selected.gcpProjectId ? (
-              <p className="banner" role="alert">
-                This storage has no BigQuery project id.
-              </p>
+            {!trimmedProject && queryState === 'ready' ? (
+              <p className="empty-note">Enter the GCP project id for the plugin Credential. Jobs run in that project.</p>
             ) : null}
             {session && session.columns.length === 0 ? <p className="empty-note">Query finished and returned no columns.</p> : null}
             {session && session.columns.length > 0 ? (

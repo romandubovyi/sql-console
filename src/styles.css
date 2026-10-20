@@ -37,7 +37,8 @@ body,
 
 body {
   margin: 0;
-  background: var(--background);
+  padding: 10px;
+  background: var(--muted);
   color: var(--foreground);
 }
 
@@ -68,6 +69,10 @@ select {
   grid-template-columns: var(--sidebar-size) 6px minmax(0, 1fr);
   height: 100%;
   min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--background);
 }
 
 .shell.narrow {
@@ -167,14 +172,35 @@ select {
 }
 
 .splitter {
+  position: relative;
   border: 0;
-  background: var(--border);
+  background: transparent;
   padding: 0;
 }
 
-.splitter:hover,
+.splitter::before {
+  content: '';
+  position: absolute;
+  background: var(--border);
+}
+
+.splitter.vertical::before {
+  top: 8px;
+  bottom: 8px;
+  left: 2px;
+  width: 1px;
+}
+
+.splitter.horizontal::before {
+  right: 8px;
+  left: 8px;
+  top: 2px;
+  height: 1px;
+}
+
 .splitter:focus-visible {
-  background: var(--primary);
+  outline: 1px solid var(--muted-foreground);
+  outline-offset: -1px;
 }
 
 .splitter.vertical {
@@ -306,6 +332,128 @@ td {
 .empty-note {
   margin: 0;
   padding: 0.75rem;
+}
+
+.query-row {
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+}
+
+.query-row .storage-item {
+  min-width: 0;
+  flex: 1;
+}
+
+.title-input,
+.project-input,
+.location-input {
+  border: 1px solid var(--border);
+  border-radius: 0.4rem;
+  background: var(--background);
+  padding: 0.3rem 0.45rem;
+}
+
+.title-input {
+  min-width: 8rem;
+  flex: 1;
+  font-weight: 600;
+}
+
+.project-input {
+  width: 9rem;
+}
+
+.location-input {
+  width: 7rem;
+}
+
+.icon-button,
+.danger-text {
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 0.4rem;
+}
+
+.icon-button:hover,
+.query-row:hover .icon-button {
+  background: var(--muted);
+}
+
+.danger-text {
+  color: var(--danger);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.history {
+  border-bottom: 1px solid var(--border);
+}
+
+.history-bar,
+.history-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+  align-items: center;
+  padding: 0.35rem 0.75rem;
+}
+
+.history-controls label {
+  display: inline-flex;
+  gap: 0.35rem;
+  align-items: center;
+  color: var(--muted-foreground);
+  font-size: 0.8125rem;
+}
+
+.history-controls select {
+  border: 1px solid var(--border);
+  border-radius: 0.4rem;
+  background: var(--background);
+  padding: 0.25rem 0.4rem;
+}
+
+.history-panel {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0 0.75rem 0.6rem;
+}
+
+.diff {
+  max-height: 11rem;
+  overflow: auto;
+  margin: 0;
+  border: 1px solid var(--border);
+  border-radius: 0.45rem;
+  background: var(--card);
+  padding: 0.35rem 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+
+.diff-line {
+  display: block;
+  padding: 0 0.7rem;
+  white-space: pre;
+}
+
+.diff-line.add {
+  background: color-mix(in oklch, oklch(0.72 0.17 145) 22%, transparent);
+}
+
+.diff-line.remove {
+  background: color-mix(in oklch, var(--danger) 18%, transparent);
 }
 
 .setup {

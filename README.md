@@ -2,9 +2,11 @@
 
 Read-only BigQuery preview inside OWOX Data Marts.
 
-Pick a BigQuery Storage from the list on the left, write one `SELECT` or `WITH` query, and page through the rows. The row count control sets how many rows each page shows.
+Write one `SELECT` or `WITH` query, save it, and page through the rows. Saved queries stay in your member collection for this project. Each save keeps the SQL, and the editor can diff the last 10 saves. The plugin opens an empty `Untitled query` even when older queries are saved.
 
-The query runs with the Google Service Account Credential you grant when installing the plugin. OWOX keeps that key and attaches a `bigquery.readonly` token to requests to `*.googleapis.com`. The Storage's own saved key is not used.
+Enter the GCP project id used to run jobs. The Credential does not include it. Location is optional; leave it empty to let BigQuery choose.
+
+The query runs with the Google Service Account Credential you grant when installing the plugin. One installation uses one Credential. OWOX keeps that key and attaches a `bigquery.readonly` token to requests to `*.googleapis.com`. A Storage's own saved key is not used.
 
 The service account needs **BigQuery Job User** on the GCP project and **BigQuery Data Viewer** on the tables. A Storage that signs in with Google OAuth needs a separate service account Credential.
 

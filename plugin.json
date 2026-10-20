@@ -1,6 +1,16 @@
 {
   "name": "SQL-Console",
-  "description": "Run a read-only BigQuery query on a Storage in this project and preview the rows.",
+  "description": "Run a read-only BigQuery query with the plugin Credential, and keep saved queries.",
+  "collections": [
+    {
+      "name": "queries",
+      "scope": "member"
+    },
+    {
+      "name": "preferences",
+      "scope": "member"
+    }
+  ],
   "delivery": {
     "type": "remote",
     "url": "https://romandubovyi.github.io/sql-console/"
