@@ -1,33 +1,35 @@
-import { useEffect, useRef, useState } from 'react';
-import { diffLines } from './diff.ts';
+import { useEffect, useRef } from 'react';
+import { diffSideBySide } from './diff.ts';
 import { formatVersionTime, type QueryVersion } from './queries.ts';
-
-type VersionSide = number | 'empty';
 
 interface QueryHistoryProps {
   versions: readonly QueryVersion[];
   open: boolean;
+  olderIndex: number | null;
+  newerIndex: number;
   onOpenChange: (open: boolean) => void;
-  onUseVersion: (sql: string) => void;
+  onSelect: (index: number) => void;
 }
 
-export function QueryHistory({ versions, open, onOpenChange, onUseVersion }: QueryHistoryProps) {
-  const signature = versions.map(version => `${version.savedAt}\n${version.sql}`).join('\n--\n');
-  const [pair, setPair] = useState(() => ({ signature, ...defaultPair(versions) }));
-  if (pair.signature !== signature) {
-    setPair({ signature, ...defaultPair(versions) });
-  }
-
+export function QueryHistory({
+  versions,
+  open,
+  olderIndex,
+  newerIndex,
+  onOpenChange,
+  onSelect,
+}: QueryHistoryProps) {
   const rootRef = useRef<HTMLDivElement>(null);
-  const fromSql = versionSql(versions, pair.from);
-  const toSql = versionSql(versions, pair.to);
-  const diff = versions.length > 0 ? diffLines(fromSql, toSql) : [];
   const versionLabel = versions.length === 1 ? '1 version' : `${versions.length} versions`;
 
   useEffect(() => {
     if (!open) return;
     const close = (event: PointerEvent) => {
-      if (!rootRef.current?.contains(event.target as Node)) onOpenChange(false);
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (rootRef.current?.contains(target)) return;
+      if (target instanceof Element && target.closest('.version-diff')) return;
+      onOpenChange(false);
     };
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onOpenChange(false);
@@ -53,64 +55,30 @@ export function QueryHistory({ versions, open, onOpenChange, onUseVersion }: Que
       </button>
       {open ? (
         <div className="history-panel" id="query-details" role="region" aria-label="Query details">
-          <p className="history-note">
-            {versionLabel} · Last 10 saves
-          </p>
+          <p className="history-note">{versionLabel} · Last 100 saves</p>
           {versions.length === 0 ? (
             <p className="history-note">Save the query to keep a version.</p>
           ) : (
-            <>
-              <div className="history-controls">
-                <label>
-                  From
-                  <select
-                    value={String(pair.from)}
-                    onChange={event => setPair(current => ({ ...current, from: parseSide(event.target.value) }))}
-                  >
-                    <option value="empty">Empty</option>
-                    {versions.map((version, index) => (
-                      <option key={`${version.savedAt}-${index}`} value={index}>
-                        {formatVersionTime(version.savedAt)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  To
-                  <select
-                    value={String(pair.to)}
-                    onChange={event => setPair(current => ({ ...current, to: parseSide(event.target.value) }))}
-                  >
-                    <option value="empty">Empty</option>
-                    {versions.map((version, index) => (
-                      <option key={`${version.savedAt}-${index}`} value={index}>
-                        {formatVersionTime(version.savedAt)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <button
-                  className="ghost"
-                  type="button"
-                  disabled={pair.to === 'empty'}
-                  onClick={() => onUseVersion(toSql)}
-                >
-                  Open this version
-                </button>
-              </div>
-              <pre className="diff" aria-label="Version diff">
-                {diff.length === 0 ? (
-                  <span className="diff-line same">No changes</span>
-                ) : (
-                  diff.map((line, index) => (
-                    <span key={`${line.kind}-${index}`} className={`diff-line ${line.kind}`}>
-                      {line.kind === 'add' ? '+ ' : line.kind === 'remove' ? '- ' : '  '}
-                      {line.text || ' '}
-                    </span>
-                  ))
-                )}
-              </pre>
-            </>
+            <ul className="version-list">
+              {versions.map((version, index) => {
+                const side = index === newerIndex ? 'newer' : index === olderIndex ? 'older' : undefined;
+                return (
+                  <li key={`${version.savedAt}-${index}`}>
+                    <button
+                      className="version-option"
+                      type="button"
+                      aria-current={side ? 'true' : undefined}
+                      data-side={side}
+                      onClick={() => onSelect(index)}
+                    >
+                      <span>{formatVersionTime(version.savedAt)}</span>
+                      {side === 'newer' ? <span className="version-side">Right</span> : null}
+                      {side === 'older' ? <span className="version-side">Left</span> : null}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
           )}
         </div>
       ) : null}
@@ -118,19 +86,43 @@ export function QueryHistory({ versions, open, onOpenChange, onUseVersion }: Que
   );
 }
 
-function defaultPair(versions: readonly QueryVersion[]): { from: VersionSide; to: VersionSide } {
-  if (versions.length === 0) return { from: 'empty', to: 'empty' };
-  if (versions.length === 1) return { from: 'empty', to: 0 };
-  return { from: 1, to: 0 };
+interface VersionDiffProps {
+  versions: readonly QueryVersion[];
+  olderIndex: number | null;
+  newerIndex: number;
+  onUseVersion: (sql: string) => void;
 }
 
-function parseSide(value: string): VersionSide {
-  if (value === 'empty') return 'empty';
-  const index = Number(value);
-  return Number.isInteger(index) ? index : 'empty';
+export function VersionDiff({ versions, olderIndex, newerIndex, onUseVersion }: VersionDiffProps) {
+  const newer = versions[newerIndex];
+  const older = olderIndex === null ? undefined : versions[olderIndex];
+  if (!newer) return null;
+  const rows = diffSideBySide(older?.sql ?? '', newer.sql);
+
+  return (
+    <div className="version-diff" aria-label="Version diff">
+      <div className="version-diff-head">
+        <span>{older ? formatVersionTime(older.savedAt) : 'Empty'}</span>
+        <span>
+          {formatVersionTime(newer.savedAt)}
+          <button className="ghost" type="button" onClick={() => onUseVersion(newer.sql)}>
+            Use this version
+          </button>
+        </span>
+      </div>
+      <div className="version-diff-body">
+        {rows.length === 0 ? (
+          <p className="history-note">No changes.</p>
+        ) : (
+          rows.map((row, index) => (
+            <div className="version-diff-row" key={`${row.left.kind}-${row.right.kind}-${index}`}>
+              <pre className={`version-diff-cell ${row.left.kind}`}>{row.left.text || ' '}</pre>
+              <pre className={`version-diff-cell ${row.right.kind}`}>{row.right.text || ' '}</pre>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
 }
 
-function versionSql(versions: readonly QueryVersion[], side: VersionSide): string {
-  if (side === 'empty') return '';
-  return versions[side]?.sql ?? '';
-}

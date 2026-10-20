@@ -17,10 +17,11 @@ import {
   PAGE_SIZES,
   type PageSize,
 } from './paging.ts';
-import { QueryHistory } from './QueryHistory.tsx';
+import { QueryHistory, VersionDiff } from './QueryHistory.tsx';
 import { StorageFields } from './StorageFields.tsx';
 import {
   emptyQuery,
+  initialVersionPick,
   landingQuery,
   listAllQueries,
   normalizePreferences,
@@ -29,6 +30,7 @@ import {
   queryIsDirty,
   toQueryItem,
   UNTITLED_QUERY,
+  versionSides,
   appendVersion,
   type PreferencesDocument,
   type QueryDocument,
@@ -127,6 +129,7 @@ function Console({ ctx }: { ctx: PluginContext }) {
   const [sql, setSql] = useState('');
   const [deleteArmedId, setDeleteArmedId] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyPick, setHistoryPick] = useState({ signature: '', focus: 0, anchor: null as number | null });
   const [projectId, setProjectId] = useState('');
   const [location, setLocation] = useState('');
   const [storageOptions, setStorageOptions] = useState<readonly BigQueryStorageOption[]>([]);
@@ -141,6 +144,15 @@ function Console({ ctx }: { ctx: PluginContext }) {
   const [notice, setNotice] = useState<Notice | null>(null);
 
   const selected = queries.find(query => query.id === selectedId) ?? null;
+  const versionSignature = (selected?.versions ?? []).map(version => `${version.savedAt}\n${version.sql}`).join('\n--\n');
+  if (historyPick.signature !== versionSignature) {
+    setHistoryPick({ signature: versionSignature, ...initialVersionPick(selected?.versions.length ?? 0) });
+  }
+  const compared = versionSides(historyPick.focus, historyPick.anchor, selected?.versions.length ?? 0);
+
+  function selectVersion(index: number) {
+    setHistoryPick(current => (index === current.focus ? current : { ...current, anchor: current.focus, focus: index }));
+  }
 
   useEffect(() => {
     const media = window.matchMedia('(max-width: 760px)');
@@ -595,18 +607,29 @@ function Console({ ctx }: { ctx: PluginContext }) {
             />
           </div>
           <div className="editor-body">
-            <SqlEditor value={sql} theme={ctx.theme} onChange={setSql} onRun={() => void onRun()} />
+            {historyOpen && (selected?.versions.length ?? 0) > 0 ? (
+              <VersionDiff
+                versions={selected?.versions ?? []}
+                olderIndex={compared.olderIndex}
+                newerIndex={compared.newerIndex}
+                onUseVersion={nextSql => {
+                  setSql(nextSql);
+                  setHistoryOpen(false);
+                }}
+              />
+            ) : (
+              <SqlEditor value={sql} theme={ctx.theme} onChange={setSql} onRun={() => void onRun()} />
+            )}
           </div>
           <div className="editor-foot">
             <span>Ctrl+Enter or Cmd+Enter</span>
             <QueryHistory
               versions={selected?.versions ?? []}
               open={historyOpen}
+              olderIndex={compared.olderIndex}
+              newerIndex={compared.newerIndex}
               onOpenChange={setHistoryOpen}
-              onUseVersion={nextSql => {
-                setSql(nextSql);
-                setHistoryOpen(false);
-              }}
+              onSelect={selectVersion}
             />
           </div>
         </section>

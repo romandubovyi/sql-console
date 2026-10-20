@@ -3,6 +3,16 @@ export interface DiffLine {
   text: string;
 }
 
+export interface DiffCell {
+  kind: 'same' | 'add' | 'remove' | 'empty';
+  text: string;
+}
+
+export interface DiffRow {
+  left: DiffCell;
+  right: DiffCell;
+}
+
 /** Line diff from `before` to `after`. An empty string has no lines. */
 export function diffLines(before: string, after: string): DiffLine[] {
   const source = splitLines(before);
@@ -33,6 +43,42 @@ export function diffLines(before: string, after: string): DiffLine[] {
   }
 
   return target.map(text => ({ kind: 'add', text }));
+}
+
+/** Align a line diff into left (before) and right (after) cells. */
+export function diffSideBySide(before: string, after: string): DiffRow[] {
+  const rows: DiffRow[] = [];
+  let removed: string[] = [];
+  let added: string[] = [];
+
+  const flush = () => {
+    const count = Math.max(removed.length, added.length);
+    for (let index = 0; index < count; index += 1) {
+      const left = removed[index];
+      const right = added[index];
+      rows.push({
+        left: left === undefined ? { kind: 'empty', text: '' } : { kind: 'remove', text: left },
+        right: right === undefined ? { kind: 'empty', text: '' } : { kind: 'add', text: right },
+      });
+    }
+    removed = [];
+    added = [];
+  };
+
+  for (const line of diffLines(before, after)) {
+    if (line.kind === 'same') {
+      flush();
+      rows.push({
+        left: { kind: 'same', text: line.text },
+        right: { kind: 'same', text: line.text },
+      });
+      continue;
+    }
+    if (line.kind === 'remove') removed.push(line.text);
+    else added.push(line.text);
+  }
+  flush();
+  return rows;
 }
 
 function splitLines(value: string): string[] {

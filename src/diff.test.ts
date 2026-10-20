@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { diffLines } from './diff.ts';
+import { diffLines, diffSideBySide } from './diff.ts';
 
 describe('diffLines', () => {
   it('marks an inserted and a removed line', () => {
@@ -18,5 +18,19 @@ describe('diffLines', () => {
   it('treats an empty side as no lines', () => {
     assert.deepEqual(diffLines('', 'SELECT 1'), [{ kind: 'add', text: 'SELECT 1' }]);
     assert.deepEqual(diffLines('', ''), []);
+  });
+});
+
+describe('diffSideBySide', () => {
+  it('puts removed and added lines on opposite sides and keeps shared lines level', () => {
+    const rows = diffSideBySide('SELECT 1\nFROM events', 'SELECT 2\nFROM events\nLIMIT 10');
+    assert.deepEqual(
+      rows.map(row => [row.left.kind, row.left.text, row.right.kind, row.right.text]),
+      [
+        ['remove', 'SELECT 1', 'add', 'SELECT 2'],
+        ['same', 'FROM events', 'same', 'FROM events'],
+        ['empty', '', 'add', 'LIMIT 10'],
+      ],
+    );
   });
 });

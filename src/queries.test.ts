@@ -2,11 +2,13 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
   appendVersion,
+  initialVersionPick,
   landingQuery,
   listAllQueries,
   MAX_VERSIONS,
   queryIsDirty,
   UNTITLED_QUERY,
+  versionSides,
 } from './queries.ts';
 
 describe('appendVersion', () => {
@@ -16,7 +18,7 @@ describe('appendVersion', () => {
       versions = appendVersion(versions, `SELECT ${index}`, `2026-10-20T00:00:${String(index).padStart(2, '0')}Z`);
     }
     assert.equal(versions.length, MAX_VERSIONS);
-    assert.equal(versions[0]?.sql, 'SELECT 11');
+    assert.equal(versions[0]?.sql, `SELECT ${MAX_VERSIONS + 1}`);
     assert.equal(versions.at(-1)?.sql, 'SELECT 2');
   });
 
@@ -24,6 +26,22 @@ describe('appendVersion', () => {
     const saved = appendVersion([], 'SELECT 1', '2026-10-20T00:00:00Z');
     assert.equal(appendVersion(saved, 'SELECT 1', '2026-10-20T00:01:00Z'), saved);
     assert.deepEqual(appendVersion([], '   ', '2026-10-20T00:00:00Z'), []);
+  });
+});
+
+describe('versionSides', () => {
+  it('starts with the newest save on the right and the previous save on the left', () => {
+    assert.deepEqual(initialVersionPick(3), { focus: 0, anchor: 1 });
+    assert.deepEqual(versionSides(0, 1, 3), { olderIndex: 1, newerIndex: 0 });
+  });
+
+  it('orders any two clicked saves from older to newer', () => {
+    assert.deepEqual(versionSides(3, 0, 5), { olderIndex: 3, newerIndex: 0 });
+  });
+
+  it('compares a single save with empty', () => {
+    assert.deepEqual(initialVersionPick(1), { focus: 0, anchor: null });
+    assert.deepEqual(versionSides(0, null, 1), { olderIndex: null, newerIndex: 0 });
   });
 });
 

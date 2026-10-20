@@ -3,7 +3,7 @@ import type { PluginCollection, PluginCollectionDocument } from '@owox/plugin-sd
 export const QUERIES_COLLECTION = 'queries';
 export const PREFERENCES_COLLECTION = 'preferences';
 export const UNTITLED_QUERY = 'Untitled query';
-export const MAX_VERSIONS = 10;
+export const MAX_VERSIONS = 100;
 
 export interface QueryVersion {
   sql: string;
@@ -32,6 +32,33 @@ export interface PreferencesDocument {
 
 export function emptyQuery(): QueryDocument {
   return { title: UNTITLED_QUERY, sql: '', versions: [] };
+}
+
+export function initialVersionPick(count: number): { focus: number; anchor: number | null } {
+  if (count <= 1) return { focus: 0, anchor: null };
+  return { focus: 0, anchor: 1 };
+}
+
+/** Left is the older save. Right is the newer save. A missing anchor compares against empty. */
+export function versionSides(
+  focus: number,
+  anchor: number | null,
+  count: number,
+): { olderIndex: number | null; newerIndex: number } {
+  if (count <= 0) return { olderIndex: null, newerIndex: 0 };
+  const safeFocus = clampIndex(focus, count);
+  if (anchor === null || anchor === safeFocus) return { olderIndex: null, newerIndex: safeFocus };
+  const safeAnchor = clampIndex(anchor, count);
+  return {
+    olderIndex: Math.max(safeFocus, safeAnchor),
+    newerIndex: Math.min(safeFocus, safeAnchor),
+  };
+}
+
+function clampIndex(index: number, count: number): number {
+  if (index < 0) return 0;
+  if (index >= count) return count - 1;
+  return index;
 }
 
 export function appendVersion(versions: QueryVersion[], sql: string, savedAt: string): QueryVersion[] {
