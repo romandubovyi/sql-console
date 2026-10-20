@@ -278,6 +278,8 @@ select {
 }
 
 .description-count {
+  font-size: 0.75rem;
+  color: var(--muted-foreground);
   font-variant-numeric: tabular-nums;
 }
 
@@ -411,6 +413,83 @@ td {
   min-width: 8rem;
   flex: 1;
   font-weight: 600;
+}
+
+.editor-mode {
+  display: inline-flex;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 0.45rem;
+  background: var(--background);
+}
+
+.editor-mode button {
+  border: 0;
+  background: transparent;
+  padding: 0.35rem 0.7rem;
+  color: var(--muted-foreground);
+  font: inherit;
+  font-size: 0.8125rem;
+  cursor: pointer;
+}
+
+.editor-mode button + button {
+  border-left: 1px solid var(--border);
+}
+
+.editor-mode button[aria-pressed='true'] {
+  background: var(--sidebar-accent);
+  color: var(--sidebar-accent-foreground);
+  font-weight: 600;
+}
+
+.mart {
+  position: relative;
+}
+
+.mart-panel {
+  position: absolute;
+  top: calc(100% + 0.35rem);
+  right: 0;
+  z-index: 6;
+  display: grid;
+  gap: 0.55rem;
+  width: min(22rem, calc(100vw - 2rem));
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--background);
+  padding: 0.7rem;
+  box-shadow: 0 8px 24px color-mix(in oklch, var(--foreground) 12%, transparent);
+}
+
+.mart-lead,
+.mart-panel .history-note {
+  padding: 0;
+}
+
+.mart-panel label {
+  display: grid;
+  gap: 0.25rem;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+}
+
+.mart-panel input,
+.mart-panel select {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 0.4rem;
+  background: var(--background);
+  color: var(--foreground);
+  padding: 0.35rem 0.45rem;
+  font: inherit;
+  font-size: 0.8125rem;
+}
+
+.mart-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
 }
 
 .project-input {

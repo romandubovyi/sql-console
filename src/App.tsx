@@ -7,6 +7,8 @@ import {
   runBigQueryPreview,
   type QueryOutcome,
 } from './bigquery.ts';
+import { CreateDataMart } from './CreateDataMart.tsx';
+import { createSqlDataMart, dataMartPath } from './data-mart.ts';
 import { describeError } from './errors.ts';
 import {
   canGoNext,
@@ -150,6 +152,9 @@ function Console({ ctx }: { ctx: PluginContext }) {
   const [running, setRunning] = useState(false);
   const [paging, setPaging] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [creatingMart, setCreatingMart] = useState(false);
+  const [martError, setMartError] = useState<string | null>(null);
+  const [createdMartId, setCreatedMartId] = useState<string | null>(null);
   const [session, setSession] = useState<ResultSession | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
 
@@ -394,6 +399,38 @@ function Console({ ctx }: { ctx: PluginContext }) {
     }
   }
 
+  const showingDiff = historyOpen && versionCount > 0;
+  const showingDescription = !showingDiff && editorMode === 'description';
+
+  function showEditor(mode: 'sql' | 'description') {
+    setHistoryOpen(false);
+    setEditorMode(mode);
+  }
+
+  async function onCreateDataMart(input: { title: string; storageId: string }) {
+    setCreatingMart(true);
+    setMartError(null);
+    setCreatedMartId(null);
+    try {
+      const created = await createSqlDataMart(ctx.owox, {
+        title: input.title,
+        storageId: input.storageId,
+        sql,
+        description,
+      });
+      if (!created.descriptionSaved) {
+        setCreatedMartId(created.id);
+        setMartError('The data mart was created, but its description could not be saved.');
+        return;
+      }
+      ctx.ui.navigate(dataMartPath(ctx.projectId, created.id));
+    } catch (cause) {
+      setMartError(describeError(cause));
+    } finally {
+      setCreatingMart(false);
+    }
+  }
+
   const trimmedProject = projectId.trim();
   const runDisabled = running || paging || !trimmedProject || sql.trim().length === 0 || queryState !== 'ready';
   const saveDisabled = saving || !selected || !queryIsDirty(selected, title, sql, description);
@@ -593,7 +630,7 @@ function Console({ ctx }: { ctx: PluginContext }) {
       />
 
       <div ref={mainRef} className="main-column">
-        <section className="editor-pane" aria-label="SQL editor">
+        <section className="editor-pane" aria-label={showingDescription ? 'Query description' : 'SQL editor'}>
           <div className="pane-toolbar">
             <input
               className="title-input"
@@ -602,6 +639,23 @@ function Console({ ctx }: { ctx: PluginContext }) {
               disabled={queryState !== 'ready'}
               onChange={event => setTitle(event.target.value)}
             />
+            <div className="editor-mode" role="group" aria-label="Editor mode">
+              <button type="button" aria-pressed={!showingDiff && editorMode === 'sql'} onClick={() => showEditor('sql')}>
+                SQL
+              </button>
+              <button
+                type="button"
+                aria-pressed={showingDescription}
+                onClick={() => showEditor('description')}
+              >
+                Description
+              </button>
+            </div>
+            {showingDescription ? (
+              <span className="description-count" data-full={description.length >= MAX_DESCRIPTION ? 'true' : undefined}>
+                {description.length}/{MAX_DESCRIPTION}
+              </span>
+            ) : null}
             <button className="ghost" type="button" disabled={saveDisabled} onClick={() => void onSave()}>
               <Save size={14} aria-hidden="true" />
               {saving ? 'Saving…' : 'Save'}
@@ -610,6 +664,19 @@ function Console({ ctx }: { ctx: PluginContext }) {
               <Play size={14} aria-hidden="true" />
               {running ? 'Running…' : 'Run'}
             </button>
+            <CreateDataMart
+              queryTitle={title}
+              sql={sql}
+              storages={storageOptions}
+              storageStatus={storageStatus}
+              creating={creatingMart}
+              error={martError}
+              createdId={createdMartId}
+              onCreate={input => void onCreateDataMart(input)}
+              onOpenCreated={() => {
+                if (createdMartId) ctx.ui.navigate(dataMartPath(ctx.projectId, createdMartId));
+              }}
+            />
             <StorageFields
               projectId={projectId}
               location={location}
@@ -621,7 +688,7 @@ function Console({ ctx }: { ctx: PluginContext }) {
             />
           </div>
           <div className="editor-body">
-            {historyOpen && versionCount > 0 ? (
+            {showingDiff ? (
               <VersionDiff
                 versions={selected?.versions ?? []}
                 baseIndex={versionPick.base}
@@ -630,8 +697,7 @@ function Console({ ctx }: { ctx: PluginContext }) {
                 onHeadChange={head => setHistoryPick(current => ({ ...current, head }))}
                 onUseVersion={nextSql => {
                   setSql(nextSql);
-                  setEditorMode('sql');
-                  setHistoryOpen(false);
+                  showEditor('sql');
                 }}
               />
             ) : editorMode === 'description' ? (
@@ -641,25 +707,8 @@ function Console({ ctx }: { ctx: PluginContext }) {
             )}
           </div>
           <div className="editor-foot">
-            <span>{editorMode === 'sql' && !(historyOpen && versionCount > 0) ? 'Ctrl+Enter or Cmd+Enter' : ''}</span>
+            <span>{!showingDiff && editorMode === 'sql' ? 'Ctrl+Enter or Cmd+Enter' : ''}</span>
             <div className="editor-foot-actions">
-              <button
-                className="details-button"
-                type="button"
-                aria-pressed={editorMode === 'description' && !(historyOpen && versionCount > 0)}
-                onClick={() => {
-                  const overlay = historyOpen && versionCount > 0;
-                  setHistoryOpen(false);
-                  setEditorMode(mode => (overlay || mode !== 'description' ? 'description' : 'sql'));
-                }}
-              >
-                Description
-              </button>
-              {editorMode === 'description' && !(historyOpen && versionCount > 0) ? (
-                <span className="description-count" data-full={description.length >= MAX_DESCRIPTION ? 'true' : undefined}>
-                  {description.length}/{MAX_DESCRIPTION}
-                </span>
-              ) : null}
               <QueryHistory
                 versions={selected?.versions ?? []}
                 open={historyOpen}

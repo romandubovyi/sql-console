@@ -1,14 +1,14 @@
 {
   "name": "sql-console",
   "private": true,
-  "version": "0.3.4",
+  "version": "0.3.5",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
     "typecheck": "tsc -b",
     "lint": "oxlint",
-    "test": "node --test src/sql.test.ts src/bigquery.test.ts src/errors.test.ts src/paging.test.ts src/queries.test.ts src/diff.test.ts src/storages.test.ts",
+    "test": "node --test src/sql.test.ts src/bigquery.test.ts src/errors.test.ts src/paging.test.ts src/queries.test.ts src/diff.test.ts src/storages.test.ts src/data-mart.test.ts",
     "preview": "vite preview"
   },
   "dependencies": {
