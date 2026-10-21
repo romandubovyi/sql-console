@@ -275,8 +275,23 @@ select {
   line-height: 1.2;
 }
 
+.credential-status {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  color: var(--foreground);
+  font-size: 0.75rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.editor-hint {
+  flex: none;
+}
+
 .editor-foot-actions {
   display: flex;
+  flex: none;
   align-items: center;
   gap: 0.75rem;
 }
@@ -349,6 +364,11 @@ button:disabled {
 
 .preview-toolbar .pager {
   padding: 0.15rem 0.35rem;
+}
+
+.preview-toolbar .preview-action {
+  padding: 0.15rem 0.45rem;
+  font-size: 0.6875rem;
 }
 
 .table-wrap {

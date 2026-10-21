@@ -1,5 +1,5 @@
 import { connect, exactCredential, type PluginContext } from '@owox/plugin-sdk';
-import { ChevronLeft, ChevronRight, Play, Plus, Save, Trash2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Download, Play, Plus, Save, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   fetchResultPage,
@@ -7,6 +7,8 @@ import {
   runBigQueryPreview,
   type QueryOutcome,
 } from './bigquery.ts';
+import { csvFilename, downloadTextFile, toCsv } from './csv.ts';
+import { GOOGLE_SERVICE_ACCOUNT, loadJobUserEmail, loadServiceAccountEmail } from './credential.ts';
 import { CreateDataMart } from './CreateDataMart.tsx';
 import { createSqlDataMart, dataMartPath } from './data-mart.ts';
 import { loadSqlSources, type SqlSource } from './sources.ts';
@@ -723,7 +725,13 @@ function Console({ ctx }: { ctx: PluginContext }) {
             )}
           </div>
           <div className="editor-foot">
-            <span>{!showingDiff && editorMode === 'sql' ? 'Ctrl+Enter or Cmd+Enter' : ''}</span>
+            <CredentialStatus
+              ctx={ctx}
+              projectId={session?.projectId ?? null}
+              jobId={session?.jobId ?? null}
+              location={session?.location ?? null}
+            />
+            <span className="editor-hint">{!showingDiff && editorMode === 'sql' ? 'Ctrl+Enter or Cmd+Enter' : ''}</span>
             <div className="editor-foot-actions">
               <QueryHistory
                 versions={selected?.versions ?? []}
@@ -802,6 +810,23 @@ function Console({ ctx }: { ctx: PluginContext }) {
               <ChevronRight size={14} aria-hidden="true" />
             </button>
             <span className="toolbar-spacer" />
+            <button
+              className="ghost preview-action"
+              type="button"
+              disabled={!session || session.columns.length === 0 || running || paging}
+              title="Download the rows on this page as CSV"
+              onClick={() => {
+                if (!session || session.columns.length === 0) return;
+                downloadTextFile(
+                  csvFilename(title),
+                  `\uFEFF${toCsv(session.columns, session.rows)}`,
+                  'text/csv;charset=utf-8',
+                );
+              }}
+            >
+              <Download size={12} aria-hidden="true" />
+              Download CSV
+            </button>
             <span className="preview-meta">
               {session
                 ? [formatRowRange(session.pageIndex, session.pageSize, session.rows.length, session.totalRows), bytes ? `${bytes} processed` : null]
@@ -927,8 +952,60 @@ function Splitter({
 }
 
 function credentialFetch(ctx: PluginContext): typeof fetch | null {
-  const google = exactCredential(ctx.credentials, 'google-service-account');
+  const google = exactCredential(ctx.credentials, GOOGLE_SERVICE_ACCOUNT);
   return google ? google.asFetch() : null;
+}
+
+function CredentialStatus({
+  ctx,
+  projectId,
+  jobId,
+  location,
+}: {
+  ctx: PluginContext;
+  projectId: string | null;
+  jobId: string | null;
+  location: string | null;
+}) {
+  const granted = exactCredential(ctx.credentials, GOOGLE_SERVICE_ACCOUNT) != null;
+  const [email, setEmail] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!granted) return;
+    const fetchImpl = credentialFetch(ctx);
+    if (!fetchImpl) return;
+    let cancelled = false;
+    void loadServiceAccountEmail(fetchImpl, ctx.signal).then(next => {
+      if (!cancelled && next) setEmail(next);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [ctx, granted]);
+
+  useEffect(() => {
+    if (!granted || email || !projectId || !jobId) return;
+    const fetchImpl = credentialFetch(ctx);
+    if (!fetchImpl) return;
+    let cancelled = false;
+    void loadJobUserEmail(fetchImpl, { projectId, jobId, location }, ctx.signal).then(next => {
+      if (!cancelled && next) setEmail(next);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [ctx, email, granted, jobId, location, projectId]);
+
+  const identity = !granted ? 'not granted' : (email ?? 'Google Service Account');
+  const title = granted
+    ? 'Queries run with this plugin Credential, the Google Service Account selected when SQL-Console was installed. The key saved on a Storage is not used.'
+    : 'No Google Service Account Credential is granted. Reinstall SQL-Console and select one.';
+
+  return (
+    <span className="credential-status" title={email ? `${email}. ${title}` : title}>
+      Credential · {identity}
+    </span>
+  );
 }
 
 function clamp(value: number, min: number, max: number): number {
