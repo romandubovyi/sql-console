@@ -60,6 +60,11 @@ export function CreateDataMart({
     });
   }
 
+  function createMart() {
+    if (creating || !storageId || title.trim() === '') return;
+    onCreate({ title, storageId });
+  }
+
   return (
     <div className="mart" ref={rootRef}>
       <button
@@ -74,13 +79,16 @@ export function CreateDataMart({
         Create data mart
       </button>
       {open ? (
-        <form
+        // The plugin frame has no allow-forms permission, so this panel is not a form.
+        <div
           className="mart-panel"
           id="create-data-mart"
-          onSubmit={event => {
+          role="group"
+          aria-label="Create data mart"
+          onKeyDown={event => {
+            if (event.key !== 'Enter' || !(event.target instanceof HTMLInputElement)) return;
             event.preventDefault();
-            if (!storageId || creating) return;
-            onCreate({ title, storageId });
+            createMart();
           }}
         >
           <p className="mart-lead">Create a SQL data mart with this query.</p>
@@ -120,11 +128,11 @@ export function CreateDataMart({
                 Open data mart
               </button>
             ) : null}
-            <button className="primary" type="submit" disabled={creating || !storageId || title.trim() === ''}>
+            <button className="primary" type="button" disabled={creating || !storageId || title.trim() === ''} onClick={createMart}>
               {creating ? 'Creating…' : 'Create'}
             </button>
           </div>
-        </form>
+        </div>
       ) : null}
     </div>
   );
