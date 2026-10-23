@@ -1,4 +1,5 @@
 export const GOOGLE_SERVICE_ACCOUNT = 'google-service-account';
+export const ANTHROPIC_CREDENTIAL = 'anthropic';
 
 const TOKENINFO_URL = 'https://oauth2.googleapis.com/tokeninfo';
 

@@ -28,6 +28,7 @@ describe('normalizeLayout', () => {
       sidebar: 400,
       stack: 220,
       editor: 481,
+      assistant: 360,
     });
   });
 
@@ -36,11 +37,13 @@ describe('normalizeLayout', () => {
       sidebar: 260,
       stack: 260,
       editor: 320,
+      assistant: 360,
     });
     assert.deepEqual(normalizeLayout({ sidebar: 'wide', editor: Number.NaN }), {
       sidebar: 260,
       stack: 260,
       editor: 320,
+      assistant: 360,
     });
   });
 
@@ -49,6 +52,7 @@ describe('normalizeLayout', () => {
       sidebar: 180,
       stack: 480,
       editor: 1200,
+      assistant: 360,
     });
   });
 });

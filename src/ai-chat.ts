@@ -1,0 +1,168 @@
+export const CLAUDE_MODEL = 'claude-sonnet-4-5';
+export const MAX_OUTPUT_TOKENS = 8192;
+
+const ANTHROPIC_MESSAGES_URL = 'https://api.anthropic.com/v1/messages';
+const ANTHROPIC_VERSION = '2023-06-01';
+
+export const MAX_SQL_CHARS = 100000;
+export const MAX_CHAT_MESSAGES = 40;
+export const MAX_MESSAGE_CHARS = 30000;
+const MAX_REPLY_CHARS = 60000;
+
+export const SYSTEM_PROMPT = `You are the AI assistant inside the SQL-Console plugin for OWOX Data Marts. You help the member write, understand, and fix BigQuery Standard SQL.
+
+Rules:
+- Answer in the same language the member writes in.
+- The current editor SQL arrives with each request. Treat it as the query being worked on.
+- When you change the SQL, output the complete updated query in a single \`\`\`sql code block so the member can apply it in one click. Never present a partial query as the proposed change.
+- Keep explanations short and practical. Do not claim you ran or can run the query — you only change its text.
+- If a request is ambiguous, ask one short clarifying question instead of guessing.
+- Never ask for or mention credentials, tokens, or keys.`;
+
+type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+
+export interface AiChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+export interface AiChatInput {
+  sql: string;
+  messages: AiChatMessage[];
+}
+
+export interface AiChatResult {
+  reply: string;
+}
+
+/** An error with a machine-readable code, surfaced to the plugin page as a PluginActionError code. */
+export class AiChatError extends Error {
+  readonly code: string;
+
+  constructor(code: string, message: string) {
+    super(message);
+    this.name = 'AiChatError';
+    this.code = code;
+  }
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+function capText(value: unknown, max: number): string | null {
+  if (typeof value !== 'string') return null;
+  return value.length <= max ? value : value.slice(0, max);
+}
+
+/** Validates raw action input even though plugin.json already schema-checks it. */
+export function normalizeAiChatInput(value: unknown): AiChatInput | null {
+  const record = asRecord(value);
+  if (!record) return null;
+  const sql = capText(record.sql, MAX_SQL_CHARS);
+  if (sql === null) return null;
+  if (!Array.isArray(record.messages) || record.messages.length === 0) return null;
+  const messages: AiChatMessage[] = [];
+  for (const item of record.messages.slice(-MAX_CHAT_MESSAGES)) {
+    const message = asRecord(item);
+    if (!message) return null;
+    if (message.role !== 'user' && message.role !== 'assistant') return null;
+    const content = capText(message.content, MAX_MESSAGE_CHARS);
+    if (content === null) return null;
+    messages.push({ role: message.role, content });
+  }
+  if (messages.length === 0) return null;
+  if (messages[messages.length - 1].role !== 'user') return null;
+  return { sql, messages };
+}
+
+/** The editor SQL rides along with the latest question so every request sees the current query. */
+function withSqlContext(content: string, sql: string): string {
+  return `Current SQL in the editor:\n\`\`\`sql\n${sql}\n\`\`\`\n\n${content}`;
+}
+
+interface AnthropicBody {
+  model: string;
+  max_tokens: number;
+  system: string;
+  messages: { role: 'user' | 'assistant'; content: string }[];
+}
+
+export function buildAnthropicBody(input: AiChatInput): AnthropicBody {
+  const messages = input.messages.map((message, index) =>
+    index === input.messages.length - 1 && message.role === 'user'
+      ? { role: 'user' as const, content: withSqlContext(message.content, input.sql) }
+      : { role: message.role, content: message.content },
+  );
+  return { model: CLAUDE_MODEL, max_tokens: MAX_OUTPUT_TOKENS, system: SYSTEM_PROMPT, messages };
+}
+
+export function parseAnthropicReply(body: unknown): string {
+  const record = asRecord(body);
+  if (!Array.isArray(record?.content)) {
+    throw new AiChatError('ANTHROPIC_FAILED', 'Claude answered in an unexpected format.');
+  }
+  const text = record.content
+    .flatMap(block => {
+      const item = asRecord(block);
+      return item?.type === 'text' && typeof item.text === 'string' ? [item.text] : [];
+    })
+    .join('');
+  if (!text.trim()) {
+    throw new AiChatError('ANTHROPIC_FAILED', 'Claude returned an empty answer.');
+  }
+  return text.length <= MAX_REPLY_CHARS ? text : text.slice(0, MAX_REPLY_CHARS);
+}
+
+/** Maps an Anthropic error response to a stable code and a member-readable message. */
+export function anthropicErrorInfo(status: number, body: unknown): { code: string; message: string } {
+  const record = asRecord(body);
+  const error = asRecord(record?.error);
+  const detail = typeof error?.message === 'string' ? error.message : '';
+  if (status === 401 || status === 403) {
+    return {
+      code: 'ANTHROPIC_AUTH',
+      message: 'The Anthropic Credential was rejected. Check the Claude token saved in OWOX.',
+    };
+  }
+  if (status === 429) {
+    return { code: 'ANTHROPIC_RATE_LIMIT', message: 'Claude is rate limited. Wait a moment and try again.' };
+  }
+  if (status === 529) {
+    return { code: 'ANTHROPIC_OVERLOADED', message: 'Claude is overloaded. Try again shortly.' };
+  }
+  return {
+    code: 'ANTHROPIC_FAILED',
+    message: detail ? `Claude request failed: ${detail}` : `Claude request failed with status ${status}.`,
+  };
+}
+
+async function readJsonSafe(response: Response): Promise<unknown> {
+  try {
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
+/** Calls the Anthropic Messages API with the installation's anthropic Credential. */
+export async function runAiChat(input: {
+  fetchImpl: FetchLike;
+  signal?: AbortSignal;
+  input: unknown;
+}): Promise<AiChatResult> {
+  const chat = normalizeAiChatInput(input.input);
+  if (!chat) throw new AiChatError('INVALID_CHAT_INPUT', 'The chat request is malformed.');
+  const response = await input.fetchImpl(ANTHROPIC_MESSAGES_URL, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'anthropic-version': ANTHROPIC_VERSION },
+    body: JSON.stringify(buildAnthropicBody(chat)),
+    signal: input.signal,
+  });
+  if (!response.ok) {
+    const info = anthropicErrorInfo(response.status, await readJsonSafe(response));
+    throw new AiChatError(info.code, info.message);
+  }
+  return { reply: parseAnthropicReply(await response.json()) };
+}

@@ -1,5 +1,5 @@
 import { connect, exactCredential, type PluginContext } from '@owox/plugin-sdk';
-import { Check, ChevronLeft, ChevronRight, Download, FolderPlus, Play, Plus, Save } from 'lucide-react';
+import { Check, ChevronLeft, ChevronRight, Download, FolderPlus, Play, Plus, Save, Sparkles } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   fetchResultPage,
@@ -8,7 +8,17 @@ import {
   type QueryOutcome,
 } from './bigquery.ts';
 import { csvFilename, downloadTextFile, toCsv } from './csv.ts';
-import { GOOGLE_SERVICE_ACCOUNT, loadJobUserEmail, loadServiceAccountEmail } from './credential.ts';
+import { GOOGLE_SERVICE_ACCOUNT, ANTHROPIC_CREDENTIAL, loadJobUserEmail, loadServiceAccountEmail } from './credential.ts';
+import type { AiChatResult } from './ai-chat.ts';
+import {
+  appendChatMessage,
+  buildAiChatInput,
+  CHATS_COLLECTION,
+  normalizeChatThread,
+  type ChatMessage,
+  type ChatThread,
+} from './assistant.ts';
+import { AssistantPanel } from './AssistantPanel.tsx';
 import { CreateDataMart } from './CreateDataMart.tsx';
 import { SqlImport } from './SqlImport.tsx';
 import { ExportPanel } from './ExportPanel.tsx';
@@ -46,7 +56,10 @@ import { QuerySettings } from './QuerySettings.tsx';
 import { Welcome } from './Welcome.tsx';
 import {
   appendVersion,
+  ASSISTANT_MAX,
+  ASSISTANT_MIN,
   compareWithPrevious,
+  DEFAULT_ASSISTANT_SIZE,
   DEFAULT_EDITOR_SIZE,
   DEFAULT_SIDEBAR_SIZE,
   EDITOR_MAX,
@@ -83,6 +96,7 @@ import { SqlEditor } from './SqlEditor.tsx';
 import { loadBigQueryStorages, type BigQueryStorageOption } from './storages.ts';
 
 const PANE_MIN = 140;
+const AI_CHAT_ACTION = 'ai-chat';
 
 interface ResultSession {
   columns: string[];
@@ -212,6 +226,13 @@ function Console({ ctx }: { ctx: PluginContext }) {
   const [sqlOrigin, setSqlOrigin] = useState<SqlOrigin | null>(null);
   const [session, setSession] = useState<ResultSession | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
+  const [assistantOpen, setAssistantOpen] = useState(false);
+  const [assistantSize, setAssistantSize] = useState(DEFAULT_ASSISTANT_SIZE);
+  const [chat, setChat] = useState<{ queryId: string; messages: ChatMessage[] }>({ queryId: '', messages: [] });
+  const [chatSending, setChatSending] = useState(false);
+  const [chatError, setChatError] = useState<string | null>(null);
+  const chatAbortRef = useRef<AbortController | null>(null);
+  const chatWrite = useRef(Promise.resolve());
 
   const selected = queries.find(query => query.id === selectedId) ?? null;
   const versionCount = selected?.versions.length ?? 0;
@@ -355,6 +376,7 @@ function Console({ ctx }: { ctx: PluginContext }) {
       setSidebarSize(clamp(layout.sidebar, SIDEBAR_MIN, sidebarMax(shellRef.current, false)));
       setStackSize(clamp(layout.stack, SIDEBAR_MIN, sidebarMax(shellRef.current, true)));
       setEditorSize(clamp(layout.editor, EDITOR_MIN, editorMax(mainRef.current)));
+      setAssistantSize(clamp(layout.assistant, ASSISTANT_MIN, assistantMax(shellRef.current)));
     };
     apply();
     window.addEventListener('resize', apply);
@@ -485,8 +507,8 @@ function Console({ ctx }: { ctx: PluginContext }) {
     return () => clearTimeout(handle);
   }, [description, enqueue, exportTarget, persistDraft, queryState, selectedId, sql, sqlOrigin, title]);
 
-  async function onSave() {
-    const draft = { id: selectedId, title, sql, description, exportTarget, sqlOrigin };
+  async function onSave(overrideSql?: string) {
+    const draft = { id: selectedId, title, sql: overrideSql ?? sql, description, exportTarget, sqlOrigin };
     if (!draft.id) return;
     setSaving(true);
     try {
@@ -581,6 +603,11 @@ function Console({ ctx }: { ctx: PluginContext }) {
           }
         }
         await ctx.collections<QueryDocument>(QUERIES_COLLECTION).delete(id);
+        try {
+          await ctx.collections<ChatThread>(CHATS_COLLECTION).delete(id);
+        } catch {
+          // The chat history may already be gone; the query is what matters.
+        }
         const items = queriesRef.current.filter(query => query.id !== id);
         queriesRef.current = items;
         setQueries(items);
@@ -637,6 +664,103 @@ function Console({ ctx }: { ctx: PluginContext }) {
   const trimmedProject = projectId.trim();
   const runDisabled = running || paging || !trimmedProject || sql.trim().length === 0 || queryState !== 'ready';
   const unsaved = Boolean(selected) && queryIsDirty(selected, title, sql, description, exportTarget);
+  const assistantConfigured = exactCredential(ctx.credentials, ANTHROPIC_CREDENTIAL) != null;
+  const assistantRunEnabled = !running && !paging && trimmedProject !== '' && queryState === 'ready';
+  const visibleChat = chat.queryId === selectedId ? chat.messages : [];
+
+  const persistChat = useCallback(
+    (queryId: string, messages: ChatMessage[]) => {
+      const run = chatWrite.current.then(() =>
+        ctx.collections<ChatThread>(CHATS_COLLECTION).put(queryId, { messages }),
+      );
+      chatWrite.current = run.then(
+        () => undefined,
+        () => undefined,
+      );
+      return run;
+    },
+    [ctx],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    chatAbortRef.current?.abort();
+    chatAbortRef.current = null;
+    void (async () => {
+      let messages: ChatMessage[] = [];
+      if (selectedId) {
+        try {
+          const stored = await ctx.collections<ChatThread>(CHATS_COLLECTION).get(selectedId);
+          messages = normalizeChatThread(stored?.document).messages;
+        } catch {
+          messages = [];
+        }
+      }
+      if (cancelled) return;
+      setChatSending(false);
+      setChatError(null);
+      setChat({ queryId: selectedId, messages });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [ctx, selectedId]);
+
+  async function onAssistantSend(text: string) {
+    const queryId = selectedId;
+    if (!ctx.actions || !assistantConfigured || !queryId || chatSending) return;
+    const base = chat.queryId === queryId ? chat.messages : [];
+    const withUser = appendChatMessage({ messages: base }, { role: 'user', content: text, at: new Date().toISOString() })
+      .messages;
+    setChat({ queryId, messages: withUser });
+    setChatError(null);
+    setChatSending(true);
+    persistChat(queryId, withUser).catch((cause: unknown) => setNotice({ message: describeError(cause) }));
+    const controller = new AbortController();
+    chatAbortRef.current = controller;
+    try {
+      const input = buildAiChatInput(sql, { messages: withUser });
+      if (!input) throw new Error('The chat history cannot be sent. Start a new query thread.');
+      const result = await ctx.actions.invoke<AiChatResult>(AI_CHAT_ACTION, input, { signal: controller.signal });
+      const withReply = appendChatMessage(
+        { messages: withUser },
+        { role: 'assistant', content: result.reply, at: new Date().toISOString() },
+      ).messages;
+      setChat(current => (current.queryId === queryId ? { queryId, messages: withReply } : current));
+      persistChat(queryId, withReply).catch((cause: unknown) => setNotice({ message: describeError(cause) }));
+    } catch (cause) {
+      if (!controller.signal.aborted) setChatError(describeError(cause));
+    } finally {
+      if (chatAbortRef.current === controller) {
+        setChatSending(false);
+        chatAbortRef.current = null;
+      }
+    }
+  }
+
+  function onAssistantCancel() {
+    chatAbortRef.current?.abort();
+    chatAbortRef.current = null;
+    setChatSending(false);
+  }
+
+  function onAssistantApply(nextSql: string) {
+    setSql(nextSql);
+    showEditor('sql');
+    setNotice(null);
+  }
+
+  function onAssistantRun(nextSql: string) {
+    setSql(nextSql);
+    showEditor('sql');
+    void onRun(nextSql);
+  }
+
+  function onAssistantSave(nextSql: string) {
+    setSql(nextSql);
+    showEditor('sql');
+    void onSave(nextSql);
+  }
 
   async function rememberRun(input: {
     id: string;
@@ -743,8 +867,11 @@ function Console({ ctx }: { ctx: PluginContext }) {
     });
   }
 
-  async function onRun() {
-    if (runDisabled) return;
+  async function onRun(overrideSql?: string) {
+    const effectiveSql = overrideSql ?? sql;
+    const disabled =
+      running || paging || !trimmedProject || effectiveSql.trim().length === 0 || queryState !== 'ready';
+    if (disabled) return;
     const fetchImpl = credentialFetch(ctx);
     if (!fetchImpl) {
       setSession(null);
@@ -757,7 +884,7 @@ function Console({ ctx }: { ctx: PluginContext }) {
 
     const token = ++shownRun.current;
     const queryId = selectedId;
-    const ranSql = sql;
+    const ranSql = effectiveSql;
     const ranProject = trimmedProject;
     const ranLocation = location.trim();
     setRestoring(false);
@@ -967,10 +1094,19 @@ function Console({ ctx }: { ctx: PluginContext }) {
   return (
     <div
       ref={shellRef}
-      className={narrow ? 'shell narrow' : 'shell'}
+      className={
+        narrow
+          ? assistantOpen && selected
+            ? 'shell narrow with-assistant'
+            : 'shell narrow'
+          : assistantOpen && selected
+            ? 'shell with-assistant'
+            : 'shell'
+      }
       style={{
         ['--sidebar-size' as string]: `${narrow ? stackSize : sidebarSize}px`,
         ['--editor-size' as string]: `${editorSize}px`,
+        ['--assistant-size' as string]: `${assistantSize}px`,
       }}
       data-dragging={dragging ? 'true' : undefined}
     >
@@ -1194,6 +1330,18 @@ function Console({ ctx }: { ctx: PluginContext }) {
                 }}
               />
               <span className="toolbar-divider" aria-hidden="true" />
+              <button
+                className={assistantOpen ? 'ghost assistant-toggle is-active' : 'ghost assistant-toggle'}
+                type="button"
+                aria-pressed={assistantOpen}
+                aria-label="AI assistant"
+                title="Chat with an AI assistant about this SQL"
+                disabled={queryState !== 'ready'}
+                onClick={() => setAssistantOpen(open => !open)}
+              >
+                <Sparkles size={14} aria-hidden="true" />
+                AI
+              </button>
               {queryState === 'ready' && !unsaved && !saving ? (
                 <span className="save-state" title="This SQL is already saved as a version">
                   <Check size={14} aria-hidden="true" />
@@ -1498,6 +1646,46 @@ function Console({ ctx }: { ctx: PluginContext }) {
           </>
         )}
       </div>
+
+      {assistantOpen && selected && !narrow ? (
+        <Splitter
+          orientation="vertical"
+          label="Resize assistant"
+          value={assistantSize}
+          min={ASSISTANT_MIN}
+          max={ASSISTANT_MAX}
+          onDragStart={() => {
+            draggingRef.current = true;
+            setDragging(true);
+          }}
+          onDragEnd={() => {
+            draggingRef.current = false;
+            setDragging(false);
+            commitLayout();
+          }}
+          onResize={next => {
+            const size = clamp(next, ASSISTANT_MIN, assistantMax(shellRef.current));
+            layoutLive.current = { ...layoutLive.current, assistant: size };
+            setAssistantSize(size);
+          }}
+        />
+      ) : null}
+      {assistantOpen && selected ? (
+        <AssistantPanel
+          configured={assistantConfigured}
+          actionsAvailable={ctx.actions != null}
+          messages={visibleChat}
+          sending={chatSending}
+          error={chatError}
+          runEnabled={assistantRunEnabled}
+          onSend={text => void onAssistantSend(text)}
+          onCancel={onAssistantCancel}
+          onApply={onAssistantApply}
+          onRun={onAssistantRun}
+          onSave={onAssistantSave}
+          onClose={() => setAssistantOpen(false)}
+        />
+      ) : null}
     </div>
   );
 }
@@ -1636,6 +1824,12 @@ function sidebarMax(shell: HTMLDivElement | null, narrow: boolean): number {
   if (!shell) return SIDEBAR_MAX;
   const limit = narrow ? shell.clientHeight - 220 : shell.clientWidth - 320;
   return Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, limit));
+}
+
+function assistantMax(shell: HTMLDivElement | null): number {
+  if (!shell) return ASSISTANT_MAX;
+  const limit = shell.clientWidth - 520;
+  return Math.max(ASSISTANT_MIN, Math.min(ASSISTANT_MAX, limit));
 }
 
 function editorMax(main: HTMLDivElement | null): number {

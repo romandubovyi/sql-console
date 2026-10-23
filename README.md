@@ -36,6 +36,12 @@ Use a report when the number is shared and should stay the project's source of t
 
 The query is one `SELECT` or `WITH`. The credential can run jobs and read tables. It cannot change BigQuery data.
 
+## AI assistant
+
+Open the AI panel next to the editor and chat about the query that is open: rewrite it, explain it, fix an error, add a filter. When the answer changes the SQL, it shows the full query with **Apply**, **Run**, and **Save** actions, so the new SQL lands in the editor, runs in the preview, or is kept as a version in one click. Each saved query keeps its own chat history.
+
+The assistant runs on Claude through the **Anthropic** Credential you add in OWOX Data Marts and select when SQL-Console is installed. The plugin never sees the token: the chat request goes from your browser to the plugin's Cloudflare Worker, the worker calls Anthropic with the Credential handle, and only the reply text comes back.
+
 ## Before the first export
 
 The plugin uses the Google Service Account Credential you select at install. OWOX keeps the key. A storage's own key is not used.

@@ -1,6 +1,6 @@
 {
   "name": "SQL-Console",
-  "description": "Check a BigQuery result and send it to a Sheet or Doc, without creating an OWOX report. Import SQL from a data mart or the query a report will run, edit it here, and write a data mart's SQL back. Save the SQL, compare versions, or refresh a sheet daily or weekly even while SQL-Console is closed.",
+  "description": "Check a BigQuery result and send it to a Sheet or Doc, without creating an OWOX report. Import SQL from a data mart or the query a report will run, edit it here, and write a data mart's SQL back. Save the SQL, compare versions, or refresh a sheet daily or weekly even while SQL-Console is closed. An AI assistant rewrites, explains, or fixes the SQL in a chat next to the editor when an Anthropic Credential is selected.",
   "collections": [
     {
       "name": "queries",
@@ -8,6 +8,10 @@
     },
     {
       "name": "preferences",
+      "scope": "member"
+    },
+    {
+      "name": "chats",
       "scope": "member"
     }
   ],
@@ -32,6 +36,38 @@
             }
           }
         }
+      },
+      "ai-chat": {
+        "timeoutSeconds": 180,
+        "input": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["sql", "messages"],
+          "properties": {
+            "sql": {
+              "type": "string",
+              "maxLength": 100000
+            },
+            "messages": {
+              "type": "array",
+              "maxItems": 40,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["role", "content"],
+                "properties": {
+                  "role": {
+                    "enum": ["user", "assistant"]
+                  },
+                  "content": {
+                    "type": "string",
+                    "maxLength": 30000
+                  }
+                }
+              }
+            }
+          }
+        }
       }
     }
   },
@@ -44,6 +80,10 @@
         "https://www.googleapis.com/auth/documents",
         "https://www.googleapis.com/auth/drive.metadata.readonly"
       ]
+    },
+    {
+      "id": "anthropic",
+      "optional": true
     }
   ]
 }

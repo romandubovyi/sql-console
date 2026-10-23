@@ -81,14 +81,19 @@ export interface LayoutSizes {
   stack: number;
   /** Editor block height. The preview fills the space that remains. */
   editor: number;
+  /** AI assistant column width. */
+  assistant: number;
 }
 
 export const DEFAULT_SIDEBAR_SIZE = 260;
 export const DEFAULT_EDITOR_SIZE = 320;
+export const DEFAULT_ASSISTANT_SIZE = 360;
 export const SIDEBAR_MIN = 180;
 export const SIDEBAR_MAX = 480;
 export const EDITOR_MIN = 160;
 export const EDITOR_MAX = 1200;
+export const ASSISTANT_MIN = 260;
+export const ASSISTANT_MAX = 640;
 
 export interface PreferencesDocument {
   projectId: string;
@@ -322,11 +327,17 @@ export function normalizeLayout(value: unknown): LayoutSizes {
     sidebar: layoutSize(record?.sidebar, DEFAULT_SIDEBAR_SIZE, SIDEBAR_MIN, SIDEBAR_MAX),
     stack: layoutSize(record?.stack, DEFAULT_SIDEBAR_SIZE, SIDEBAR_MIN, SIDEBAR_MAX),
     editor: layoutSize(record?.editor, DEFAULT_EDITOR_SIZE, EDITOR_MIN, EDITOR_MAX),
+    assistant: layoutSize(record?.assistant, DEFAULT_ASSISTANT_SIZE, ASSISTANT_MIN, ASSISTANT_MAX),
   };
 }
 
 export function sameLayout(left: LayoutSizes, right: LayoutSizes): boolean {
-  return left.sidebar === right.sidebar && left.stack === right.stack && left.editor === right.editor;
+  return (
+    left.sidebar === right.sidebar &&
+    left.stack === right.stack &&
+    left.editor === right.editor &&
+    left.assistant === right.assistant
+  );
 }
 
 function layoutSize(value: unknown, fallback: number, min: number, max: number): number {
