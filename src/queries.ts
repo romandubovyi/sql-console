@@ -161,13 +161,38 @@ export function queryIsDirty(
   return stored.versions[0]?.sql !== sql;
 }
 
-/** Oldest empty Untitled query, which is the editor opened on each visit. */
-export function landingQuery<T extends Pick<QueryItem, 'id' | 'title' | 'sql' | 'createdAt'>>(
-  queries: readonly T[],
-): T | null {
-  const matches = queries.filter(query => query.title === UNTITLED_QUERY && query.sql.trim() === '');
-  if (matches.length === 0) return null;
-  return [...matches].sort((left, right) => left.createdAt.localeCompare(right.createdAt))[0] ?? null;
+type BlankQuery = Pick<
+  QueryItem,
+  | 'title'
+  | 'sql'
+  | 'description'
+  | 'versions'
+  | 'exportTarget'
+  | 'lastRun'
+  | 'sheetSchedule'
+  | 'scheduledExport'
+  | 'sqlOrigin'
+>;
+
+/** An Untitled query the editor used to create on every open, with nothing stored on it. */
+export function isBlankQuery(query: BlankQuery): boolean {
+  return (
+    query.title === UNTITLED_QUERY &&
+    query.sql.trim() === '' &&
+    query.description.trim() === '' &&
+    query.versions.length === 0 &&
+    query.exportTarget === null &&
+    query.lastRun === null &&
+    query.sheetSchedule === null &&
+    query.scheduledExport === null &&
+    query.sqlOrigin === null
+  );
+}
+
+/** The query to open on a visit. A blank shell is not one. */
+export function resumeQuery<T extends BlankQuery & Pick<QueryItem, 'updatedAt'>>(queries: readonly T[]): T | null {
+  const real = queries.filter(query => !isBlankQuery(query));
+  return [...real].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0] ?? null;
 }
 
 export function normalizeQuery(document: unknown): QueryDocument {

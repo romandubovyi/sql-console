@@ -293,6 +293,146 @@ button.ghost.save-query {
   min-height: 0;
 }
 
+.main-column.is-welcome {
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.welcome-wrap {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.welcome-wrap > .banner {
+  margin: 0.75rem 0.75rem 0;
+}
+
+.welcome-waiting {
+  margin: 0.75rem;
+  color: var(--muted-foreground);
+}
+
+.welcome {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: safe center;
+  gap: 1.5rem;
+  overflow: auto;
+  padding: 1.25rem 1rem 2rem;
+  background:
+    radial-gradient(ellipse at top, color-mix(in oklch, var(--primary) 10%, transparent), transparent 58%),
+    var(--background);
+}
+
+.welcome-copy {
+  display: grid;
+  justify-items: center;
+  max-width: 34rem;
+  gap: 0.7rem;
+  text-align: center;
+}
+
+.welcome-copy h1 {
+  margin: 0;
+  font-size: 1.35rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.welcome-copy p {
+  margin: 0;
+  color: var(--muted-foreground);
+  font-size: 0.875rem;
+  line-height: 1.45;
+}
+
+.welcome-flow {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.65rem;
+  width: min(100%, 56rem);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.welcome-flow::before {
+  content: '';
+  position: absolute;
+  z-index: 0;
+  top: 1.35rem;
+  left: 8%;
+  right: 8%;
+  height: 2px;
+  background: color-mix(in oklch, var(--primary) 45%, var(--border));
+}
+
+.welcome-flow li {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-rows: auto auto;
+  column-gap: 0.55rem;
+  row-gap: 0.15rem;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  background: var(--card);
+  padding: 0.7rem 0.75rem 0.8rem;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.04);
+}
+
+.welcome-mark {
+  grid-row: 1 / span 2;
+  display: grid;
+  justify-items: center;
+  align-content: start;
+  gap: 0.35rem;
+  color: var(--primary);
+}
+
+.welcome-index {
+  display: grid;
+  place-items: center;
+  width: 1.35rem;
+  height: 1.35rem;
+  border-radius: 999px;
+  background: color-mix(in oklch, var(--primary) 14%, var(--card));
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.welcome-flow strong {
+  font-size: 0.8125rem;
+}
+
+.welcome-flow li > span:last-child {
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  line-height: 1.35;
+}
+
+.shell.narrow .welcome {
+  justify-content: start;
+}
+
+.shell.narrow .welcome-flow {
+  grid-template-columns: 1fr;
+  width: min(100%, 28rem);
+}
+
+.shell.narrow .welcome-flow::before {
+  top: 1rem;
+  bottom: 1rem;
+  left: 1.4rem;
+  right: auto;
+  width: 2px;
+  height: auto;
+}
+
 .editor-pane,
 .preview-pane {
   display: flex;

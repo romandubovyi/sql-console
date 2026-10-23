@@ -4,7 +4,8 @@ import {
   appendVersion,
   compareWithPrevious,
   initialVersionPick,
-  landingQuery,
+  isBlankQuery,
+  resumeQuery,
   limitDescription,
   listAllQueries,
   MAX_DESCRIPTION,
@@ -53,19 +54,33 @@ describe('compareWithPrevious', () => {
   });
 });
 
-describe('landingQuery', () => {
-  it('opens the oldest empty Untitled query', () => {
-    const chosen = landingQuery([
-      { id: 'named', title: 'Revenue', sql: '', createdAt: '2026-10-01T00:00:00Z' },
-      { id: 'filled', title: UNTITLED_QUERY, sql: 'SELECT 1', createdAt: '2026-10-02T00:00:00Z' },
-      { id: 'newer', title: UNTITLED_QUERY, sql: '', createdAt: '2026-10-04T00:00:00Z' },
-      { id: 'older', title: UNTITLED_QUERY, sql: '  ', createdAt: '2026-10-03T00:00:00Z' },
+describe('resumeQuery', () => {
+  const blank = {
+    title: UNTITLED_QUERY,
+    sql: '',
+    description: '',
+    versions: [],
+    exportTarget: null,
+    lastRun: null,
+    sheetSchedule: null,
+    scheduledExport: null,
+    sqlOrigin: null,
+  };
+
+  it('opens the newest query that has something in it', () => {
+    const chosen = resumeQuery([
+      { ...blank, title: 'Revenue', sql: 'SELECT 1', updatedAt: '2026-10-01T00:00:00Z' },
+      { ...blank, title: 'Draft', sql: 'SELECT 2', updatedAt: '2026-10-04T00:00:00Z' },
+      { ...blank, updatedAt: '2026-10-05T00:00:00Z' },
     ]);
-    assert.equal(chosen?.id, 'older');
+    assert.equal(chosen?.title, 'Draft');
   });
 
-  it('reports when a new Untitled query has to be created', () => {
-    assert.equal(landingQuery([{ id: 'named', title: 'Revenue', sql: 'SELECT 1', createdAt: '2026-10-01' }]), null);
+  it('leaves the editor empty when every query is a blank shell', () => {
+    assert.equal(resumeQuery([{ ...blank, updatedAt: '2026-10-01T00:00:00Z' }]), null);
+    assert.equal(isBlankQuery({ ...blank, sql: '  ' }), true);
+    assert.equal(isBlankQuery({ ...blank, sql: 'SELECT 1' }), false);
+    assert.equal(isBlankQuery({ ...blank, description: 'Note' }), false);
   });
 });
 

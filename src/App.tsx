@@ -30,13 +30,14 @@ import { MarkdownEditor } from './MarkdownEditor.tsx';
 import { QueryDryRun } from './QueryDryRun.tsx';
 import { QueryHistory, VersionDiff } from './QueryHistory.tsx';
 import { QuerySettings } from './QuerySettings.tsx';
+import { Welcome } from './Welcome.tsx';
 import {
   appendVersion,
   compareWithPrevious,
   emptyQuery,
   formatVersionTime,
   initialVersionPick,
-  landingQuery,
+  isBlankQuery,
   lastRunExpiredMessage,
   MAX_DESCRIPTION,
   listAllQueries,
@@ -44,6 +45,7 @@ import {
   PREFERENCES_COLLECTION,
   QUERIES_COLLECTION,
   queryIsDirty,
+  resumeQuery,
   sameSqlOrigin,
   storedQuery,
   toQueryItem,
@@ -209,6 +211,21 @@ function Console({ ctx }: { ctx: PluginContext }) {
     setNotice(null);
   }
 
+  function showWelcome() {
+    shownRun.current += 1;
+    setRestoring(false);
+    setSelectedId('');
+    setTitle('');
+    setSql('');
+    setDescription('');
+    setExportTarget(null);
+    setSqlOrigin(null);
+    setEditorMode('sql');
+    setSession(null);
+    setHistoryOpen(false);
+    setNotice(null);
+  }
+
   useEffect(() => {
     const media = window.matchMedia('(max-width: 760px)');
     const apply = () => setNarrow(media.matches);
@@ -234,21 +251,42 @@ function Console({ ctx }: { ctx: PluginContext }) {
         setPreferencesReady(true);
 
         let items = stored.map(item => toQueryItem(item));
-        let landing = landingQuery(items);
-        if (!landing) {
-          const created = await queryCollection.put(crypto.randomUUID(), emptyQuery());
-          if (cancelled) return;
-          landing = toQueryItem(created);
-          items = [...items, landing];
+        const blanks = items.filter(isBlankQuery);
+        if (blanks.length > 0) {
+          const removed = new Set<string>();
+          for (let index = 0; index < blanks.length; index += 8) {
+            await Promise.all(
+              blanks.slice(index, index + 8).map(async blank => {
+                try {
+                  await queryCollection.delete(blank.id);
+                  removed.add(blank.id);
+                } catch {
+                  // A shell that cannot be deleted stays out of the list until a later visit.
+                }
+              }),
+            );
+            if (cancelled) return;
+          }
+          items = items.filter(item => !removed.has(item.id));
         }
         queriesRef.current = items;
         setQueries(items);
-        setSelectedId(landing.id);
-        setTitle(landing.title);
-        setSql(landing.sql);
-        setDescription(landing.description);
-        setExportTarget(landing.exportTarget);
-        setSqlOrigin(landing.sqlOrigin);
+        const landing = resumeQuery(items);
+        if (landing) {
+          setSelectedId(landing.id);
+          setTitle(landing.title);
+          setSql(landing.sql);
+          setDescription(landing.description);
+          setExportTarget(landing.exportTarget);
+          setSqlOrigin(landing.sqlOrigin);
+        } else {
+          setSelectedId('');
+          setTitle('');
+          setSql('');
+          setDescription('');
+          setExportTarget(null);
+          setSqlOrigin(null);
+        }
         setEditorMode('sql');
         setQueryState('ready');
       } catch (cause) {
@@ -462,16 +500,13 @@ function Console({ ctx }: { ctx: PluginContext }) {
           }
         }
         await ctx.collections<QueryDocument>(QUERIES_COLLECTION).delete(id);
-        let items = queriesRef.current.filter(query => query.id !== id);
-        if (items.length === 0) {
-          const saved = await ctx.collections<QueryDocument>(QUERIES_COLLECTION).put(crypto.randomUUID(), emptyQuery());
-          items = [toQueryItem(saved)];
-        }
+        const items = queriesRef.current.filter(query => query.id !== id);
         queriesRef.current = items;
         setQueries(items);
         if (selectedId === id) {
-          const next = landingQuery(items) ?? items[0];
+          const next = resumeQuery(items);
           if (next) showQuery(next);
+          else showWelcome();
         }
         if (orphan) {
           setNotice({ message: 'The query was deleted. Remove its schedule in Plugins → Schedules.' });
@@ -840,7 +875,9 @@ function Console({ ctx }: { ctx: PluginContext }) {
       canGoNext(session.pageIndex, session.pageSize, session.totalRows, session.rows.length),
   );
   const bytes = formatBytes(session?.bytesProcessed ?? null);
-  const visibleQueries = [...queries].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+  const visibleQueries = queries
+    .filter(query => query.id === selectedId || !isBlankQuery(query))
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
 
   return (
     <div
@@ -876,7 +913,10 @@ function Console({ ctx }: { ctx: PluginContext }) {
               </button>
             </>
           ) : null}
-          {queryState === 'ready' ? (
+          {queryState === 'ready' && visibleQueries.length === 0 ? (
+            <p className="empty-note">No queries yet.</p>
+          ) : null}
+          {queryState === 'ready' && visibleQueries.length > 0 ? (
             <ul className="storage-list">
               {visibleQueries.map(query => (
                 <li key={query.id} className="query-row" id={`query-${query.id}`}>
@@ -920,7 +960,20 @@ function Console({ ctx }: { ctx: PluginContext }) {
         onResize={next => setSidebarSize(clamp(next, SIDEBAR_MIN, sidebarMax(shellRef.current, narrow)))}
       />
 
-      <div ref={mainRef} className="main-column">
+      <div ref={mainRef} className={selected ? 'main-column' : 'main-column is-welcome'}>
+        {queryState === 'ready' && !selected ? (
+          <div className="welcome-wrap">
+            {notice ? (
+              <p className="banner" role="alert">
+                {notice.message}
+              </p>
+            ) : null}
+            <Welcome onNew={() => void onCreate()} />
+          </div>
+        ) : queryState !== 'ready' ? (
+          <p className="welcome-waiting">{queryState === 'loading' ? 'Opening SQL-Console…' : ''}</p>
+        ) : (
+          <>
         <section className="editor-pane" aria-label={showingDescription ? 'Query description' : 'SQL editor'}>
           <div className="pane-toolbar editor-toolbar">
             <input
@@ -1279,6 +1332,8 @@ function Console({ ctx }: { ctx: PluginContext }) {
             ) : null}
           </div>
         </section>
+          </>
+        )}
       </div>
     </div>
   );
