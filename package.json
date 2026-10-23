@@ -1,7 +1,7 @@
 {
   "name": "sql-console",
   "private": true,
-  "version": "0.4.10",
+  "version": "0.4.11",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -15,6 +15,7 @@
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
     "@owox/plugin-sdk": "^0.39.0",
+    "@radix-ui/react-dropdown-menu": "^2.2.1",
     "lucide-react": "^1.60.0",
     "monaco-editor": "^0.57.0",
     "react": "^19.3.1",
