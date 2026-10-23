@@ -1,5 +1,6 @@
 import type { PluginCollection, PluginCollectionDocument } from '@owox/plugin-sdk';
 import { normalizeExportTarget, sameExportTarget, type ExportTarget } from './export-target.ts';
+import { normalizeFolders, type QueryFolder } from './folders.ts';
 
 export const QUERIES_COLLECTION = 'queries';
 export const PREFERENCES_COLLECTION = 'preferences';
@@ -75,6 +76,7 @@ export interface QueryItem {
 export interface PreferencesDocument {
   projectId: string;
   location: string;
+  folders: QueryFolder[];
 }
 
 export function emptyQuery(): QueryDocument {
@@ -301,6 +303,7 @@ export function normalizePreferences(document: unknown): PreferencesDocument {
   return {
     projectId: typeof record?.projectId === 'string' ? record.projectId : '',
     location: typeof record?.location === 'string' ? record.location : '',
+    folders: normalizeFolders(record?.folders),
   };
 }
 

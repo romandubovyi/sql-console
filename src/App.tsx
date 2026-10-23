@@ -1,5 +1,5 @@
 import { connect, exactCredential, type PluginContext } from '@owox/plugin-sdk';
-import { Check, ChevronLeft, ChevronRight, Download, Play, Plus, Save, Trash2 } from 'lucide-react';
+import { Check, ChevronLeft, ChevronRight, Download, FolderPlus, Play, Plus, Save } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   fetchResultPage,
@@ -16,6 +16,18 @@ import { sameExportTarget, type ExportTarget } from './export-target.ts';
 import { createSqlDataMart, dataMartPath } from './data-mart.ts';
 import { loadSqlSources, type SqlSource } from './sources.ts';
 import { describeError } from './errors.ts';
+import {
+  createFolder,
+  folderIdFor,
+  MAX_FOLDERS,
+  moveQuery,
+  pruneFolders,
+  removeFolder,
+  renameFolder,
+  revealQuery,
+  toggleFolder,
+  type QueryFolder,
+} from './folders.ts';
 import { Hint } from './Hint.tsx';
 import {
   canGoNext,
@@ -29,6 +41,7 @@ import {
 import { MarkdownEditor } from './MarkdownEditor.tsx';
 import { QueryDryRun } from './QueryDryRun.tsx';
 import { QueryHistory, VersionDiff } from './QueryHistory.tsx';
+import { QueryTree } from './QueryTree.tsx';
 import { QuerySettings } from './QuerySettings.tsx';
 import { Welcome } from './Welcome.tsx';
 import {
@@ -139,7 +152,8 @@ function Console({ ctx }: { ctx: PluginContext }) {
   const mainRef = useRef<HTMLDivElement>(null);
   const queriesRef = useRef<QueryItem[]>([]);
   const writeRef = useRef(Promise.resolve());
-  const savedPreferences = useRef({ projectId: '', location: '' });
+  const savedPreferences = useRef<PreferencesDocument>({ projectId: '', location: '', folders: [] });
+  const preferenceWrite = useRef(Promise.resolve());
   const shownRun = useRef(0);
   const sessionRef = useRef<ResultSession | null>(null);
   const pageSizeRef = useRef<PageSize>(DEFAULT_PAGE_SIZE);
@@ -171,6 +185,9 @@ function Console({ ctx }: { ctx: PluginContext }) {
   const [storageUnread, setStorageUnread] = useState(0);
   const [sqlSources, setSqlSources] = useState<readonly SqlSource[]>([]);
   const [preferencesReady, setPreferencesReady] = useState(false);
+  const [folders, setFolders] = useState<QueryFolder[]>([]);
+  const [folderOpen, setFolderOpen] = useState(false);
+  const [folderName, setFolderName] = useState('');
   const [pageSize, setPageSize] = useState<PageSize>(DEFAULT_PAGE_SIZE);
   const [running, setRunning] = useState(false);
   const [restoring, setRestoring] = useState(false);
@@ -226,6 +243,19 @@ function Console({ ctx }: { ctx: PluginContext }) {
     setNotice(null);
   }
 
+  const persistPreferences = useCallback((next: PreferencesDocument) => {
+    savedPreferences.current = next;
+    setFolders(next.folders);
+    const run = preferenceWrite.current.then(() =>
+      ctx.collections<PreferencesDocument>(PREFERENCES_COLLECTION).put('current', savedPreferences.current),
+    );
+    preferenceWrite.current = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }, [ctx]);
+
   useEffect(() => {
     const media = window.matchMedia('(max-width: 760px)');
     const apply = () => setNarrow(media.matches);
@@ -245,10 +275,8 @@ function Console({ ctx }: { ctx: PluginContext }) {
         ]);
         if (cancelled) return;
         const prefs = normalizePreferences(preferences?.document);
-        savedPreferences.current = prefs;
         setProjectId(prefs.projectId);
         setLocation(prefs.location);
-        setPreferencesReady(true);
 
         let items = stored.map(item => toQueryItem(item));
         const blanks = items.filter(isBlankQuery);
@@ -272,6 +300,11 @@ function Console({ ctx }: { ctx: PluginContext }) {
         queriesRef.current = items;
         setQueries(items);
         const landing = resumeQuery(items);
+        const kept = revealQuery(pruneFolders(prefs.folders, new Set(items.map(item => item.id))), landing?.id ?? '');
+        savedPreferences.current = { ...prefs, folders: kept };
+        setFolders(kept);
+        setPreferencesReady(true);
+        if (kept !== prefs.folders) await persistPreferences(savedPreferences.current);
         if (landing) {
           setSelectedId(landing.id);
           setTitle(landing.title);
@@ -298,25 +331,22 @@ function Console({ ctx }: { ctx: PluginContext }) {
     return () => {
       cancelled = true;
     };
-  }, [ctx, loadKey]);
+  }, [ctx, loadKey, persistPreferences]);
 
   useEffect(() => {
     if (!preferencesReady) return;
-    const next = { projectId: projectId.trim(), location: location.trim() };
-    if (next.projectId === savedPreferences.current.projectId && next.location === savedPreferences.current.location) {
-      return;
-    }
+    const project = projectId.trim();
+    const place = location.trim();
+    if (project === savedPreferences.current.projectId && place === savedPreferences.current.location) return;
     const handle = setTimeout(() => {
-      void ctx
-        .collections<PreferencesDocument>(PREFERENCES_COLLECTION)
-        .put('current', next)
-        .then(() => {
-          savedPreferences.current = next;
-        })
-        .catch((cause: unknown) => setNotice({ message: describeError(cause) }));
+      void persistPreferences({
+        projectId: project,
+        location: place,
+        folders: savedPreferences.current.folders,
+      }).catch((cause: unknown) => setNotice({ message: describeError(cause) }));
     }, 600);
     return () => clearTimeout(handle);
-  }, [ctx, location, preferencesReady, projectId]);
+  }, [location, persistPreferences, preferencesReady, projectId]);
 
   useEffect(() => {
     document.getElementById(`query-${selectedId}`)?.scrollIntoView({ block: 'nearest' });
@@ -467,6 +497,16 @@ function Console({ ctx }: { ctx: PluginContext }) {
     }
   }
 
+  function addFolder() {
+    const next = createFolder(savedPreferences.current.folders, folderName, crypto.randomUUID());
+    if (!next) return;
+    setFolderName('');
+    setFolderOpen(false);
+    void persistPreferences({ ...savedPreferences.current, folders: next }).catch((cause: unknown) =>
+      setNotice({ message: describeError(cause) }),
+    );
+  }
+
   async function onCreate() {
     const draft = { id: selectedId, title, sql, description, exportTarget, sqlOrigin };
     setDeleteArmedId(null);
@@ -478,6 +518,13 @@ function Console({ ctx }: { ctx: PluginContext }) {
         queriesRef.current = [item, ...queriesRef.current];
         setQueries(queriesRef.current);
         showQuery(item);
+        const home = draft.id ? folderIdFor(savedPreferences.current.folders, draft.id) : null;
+        if (home) {
+          await persistPreferences({
+            ...savedPreferences.current,
+            folders: moveQuery(savedPreferences.current.folders, item.id, home),
+          });
+        }
       });
     } catch (cause) {
       setNotice({ message: describeError(cause) });
@@ -503,6 +550,10 @@ function Console({ ctx }: { ctx: PluginContext }) {
         const items = queriesRef.current.filter(query => query.id !== id);
         queriesRef.current = items;
         setQueries(items);
+        const pruned = pruneFolders(savedPreferences.current.folders, new Set(items.map(item => item.id)));
+        if (pruned !== savedPreferences.current.folders) {
+          await persistPreferences({ ...savedPreferences.current, folders: pruned });
+        }
         if (selectedId === id) {
           const next = resumeQuery(items);
           if (next) showQuery(next);
@@ -890,10 +941,49 @@ function Console({ ctx }: { ctx: PluginContext }) {
         <div className="sidebar-header">
           <strong>Queries</strong>
           <span className="toolbar-spacer" />
+          <button
+            className="icon-button"
+            type="button"
+            aria-label="New folder"
+            title="New folder"
+            aria-expanded={folderOpen}
+            onClick={() => setFolderOpen(open => !open)}
+          >
+            <FolderPlus size={16} aria-hidden="true" />
+          </button>
           <button className="icon-button" type="button" aria-label="New query" onClick={() => void onCreate()}>
             <Plus size={16} aria-hidden="true" />
           </button>
         </div>
+        {folderOpen ? (
+          <div className="folder-create" role="group" aria-label="New folder">
+            <input
+              aria-label="Folder name"
+              placeholder="Folder name"
+              value={folderName}
+              autoFocus
+              onChange={event => setFolderName(event.target.value)}
+              onKeyDown={event => {
+                if (event.key === 'Enter') {
+                  event.preventDefault();
+                  addFolder();
+                }
+                if (event.key === 'Escape') {
+                  event.preventDefault();
+                  setFolderOpen(false);
+                }
+              }}
+            />
+            <button
+              className="primary"
+              type="button"
+              disabled={!folderName.trim() || folders.length >= MAX_FOLDERS}
+              onClick={addFolder}
+            >
+              Create
+            </button>
+          </div>
+        ) : null}
         <div className="sidebar-body">
           {queryState === 'loading' ? <p className="empty-note dm-muted">Loading queries…</p> : null}
           {queryState === 'error' ? (
@@ -913,38 +1003,52 @@ function Console({ ctx }: { ctx: PluginContext }) {
               </button>
             </>
           ) : null}
-          {queryState === 'ready' && visibleQueries.length === 0 ? (
+          {queryState === 'ready' && visibleQueries.length === 0 && folders.length === 0 ? (
             <p className="empty-note">No queries yet.</p>
           ) : null}
-          {queryState === 'ready' && visibleQueries.length > 0 ? (
-            <ul className="storage-list">
-              {visibleQueries.map(query => (
-                <li key={query.id} className="query-row" id={`query-${query.id}`}>
-                  <button
-                    type="button"
-                    className="storage-item"
-                    aria-current={query.id === selectedId ? 'true' : undefined}
-                    onClick={() => void openQuery(query.id)}
-                  >
-                    <span className="storage-title">{query.title}</span>
-                  </button>
-                  {deleteArmedId === query.id ? (
-                    <button className="danger-text" type="button" onClick={() => void onDelete(query.id)}>
-                      Delete
-                    </button>
-                  ) : (
-                    <button
-                      className="icon-button"
-                      type="button"
-                      aria-label={`Delete ${query.title}`}
-                      onClick={() => setDeleteArmedId(query.id)}
-                    >
-                      <Trash2 size={14} aria-hidden="true" />
-                    </button>
-                  )}
-                </li>
-              ))}
-            </ul>
+          {queryState === 'ready' && (visibleQueries.length > 0 || folders.length > 0) ? (
+            <QueryTree
+              folders={folders}
+              queries={visibleQueries}
+              selectedId={selectedId}
+              deleteArmedId={deleteArmedId}
+              onOpen={id => {
+                const opened = revealQuery(savedPreferences.current.folders, id);
+                if (opened !== savedPreferences.current.folders) {
+                  void persistPreferences({ ...savedPreferences.current, folders: opened }).catch((cause: unknown) =>
+                    setNotice({ message: describeError(cause) }),
+                  );
+                }
+                void openQuery(id);
+              }}
+              onArmDelete={setDeleteArmedId}
+              onDelete={id => void onDelete(id)}
+              onToggle={id =>
+                void persistPreferences({
+                  ...savedPreferences.current,
+                  folders: toggleFolder(savedPreferences.current.folders, id),
+                }).catch((cause: unknown) => setNotice({ message: describeError(cause) }))
+              }
+              onRename={(id, name) => {
+                const next = renameFolder(savedPreferences.current.folders, id, name);
+                if (!next || next === savedPreferences.current.folders) return;
+                void persistPreferences({ ...savedPreferences.current, folders: next }).catch((cause: unknown) =>
+                  setNotice({ message: describeError(cause) }),
+                );
+              }}
+              onRemoveFolder={id =>
+                void persistPreferences({
+                  ...savedPreferences.current,
+                  folders: removeFolder(savedPreferences.current.folders, id),
+                }).catch((cause: unknown) => setNotice({ message: describeError(cause) }))
+              }
+              onMove={(queryId, folderId) =>
+                void persistPreferences({
+                  ...savedPreferences.current,
+                  folders: moveQuery(savedPreferences.current.folders, queryId, folderId),
+                }).catch((cause: unknown) => setNotice({ message: describeError(cause) }))
+              }
+            />
           ) : null}
         </div>
       </aside>
