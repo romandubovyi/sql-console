@@ -1,6 +1,6 @@
 {
   "name": "SQL-Console",
-  "description": "Run a read-only BigQuery query with the plugin Credential, keep saved queries, and export a preview page to a Google Sheet or Doc.",
+  "description": "Run a read-only BigQuery query with the plugin Credential, keep saved queries, export to a Google Sheet or Doc, and replace a spreadsheet on a schedule.",
   "collections": [
     {
       "name": "queries",
@@ -14,6 +14,26 @@
   "delivery": {
     "type": "remote",
     "url": "https://romandubovyi.github.io/sql-console/"
+  },
+  "backend": {
+    "url": "https://sql-console.r-dubovoi.workers.dev",
+    "actions": {
+      "export-sheet": {
+        "timeoutSeconds": 300,
+        "input": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["queryId"],
+          "properties": {
+            "queryId": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          }
+        }
+      }
+    }
   },
   "credentials": [
     {

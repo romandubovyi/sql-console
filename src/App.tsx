@@ -47,7 +47,9 @@ import {
   type PreferencesDocument,
   type QueryDocument,
   type QueryItem,
+  type SheetSchedule,
 } from './queries.ts';
+import { deleteExportSchedule } from './schedule.ts';
 import { SqlEditor } from './SqlEditor.tsx';
 import { loadBigQueryStorages, type BigQueryStorageOption } from './storages.ts';
 
@@ -319,23 +321,41 @@ function Console({ ctx }: { ctx: PluginContext }) {
     return run;
   }, []);
 
+  const readKept = useCallback(async (id: string): Promise<QueryItem | null> => {
+    const stored = await ctx.collections<QueryDocument>(QUERIES_COLLECTION).get(id);
+    return stored ? toQueryItem(stored) : null;
+  }, [ctx]);
+
   const persistDraft = useCallback(
     async (draft: Draft) => {
       const current = queriesRef.current.find(query => query.id === draft.id);
       if (!current) return;
-      const next = storedQuery({ ...draft, lastRun: current.lastRun }, current.versions);
+      const kept = await readKept(draft.id);
+      if (!kept) return;
+      const next = storedQuery(
+        {
+          ...draft,
+          lastRun: kept.lastRun,
+          sheetSchedule: kept.sheetSchedule,
+          scheduledExport: kept.scheduledExport,
+        },
+        kept.versions,
+      );
       if (
-        current.title === next.title &&
-        current.sql === next.sql &&
-        current.description === next.description &&
-        sameExportTarget(current.exportTarget, next.exportTarget)
+        kept.title === next.title &&
+        kept.sql === next.sql &&
+        kept.description === next.description &&
+        sameExportTarget(kept.exportTarget, next.exportTarget) &&
+        JSON.stringify(kept.lastRun) === JSON.stringify(next.lastRun) &&
+        JSON.stringify(kept.sheetSchedule) === JSON.stringify(next.sheetSchedule) &&
+        JSON.stringify(kept.scheduledExport) === JSON.stringify(next.scheduledExport)
       ) {
         return;
       }
       const saved = await ctx.collections<QueryDocument>(QUERIES_COLLECTION).put(draft.id, next);
       replaceQuery(toQueryItem(saved));
     },
-    [ctx, replaceQuery],
+    [ctx, readKept, replaceQuery],
   );
 
   useEffect(() => {
@@ -357,11 +377,17 @@ function Console({ ctx }: { ctx: PluginContext }) {
       await enqueue(async () => {
         const current = queriesRef.current.find(query => query.id === draft.id);
         if (!current) return;
+        const kept = (await readKept(draft.id)) ?? current;
         const saved = await ctx.collections<QueryDocument>(QUERIES_COLLECTION).put(
           draft.id,
           storedQuery(
-            { ...draft, lastRun: current.lastRun },
-            appendVersion(current.versions, draft.sql, new Date().toISOString()),
+            {
+              ...draft,
+              lastRun: kept.lastRun,
+              sheetSchedule: kept.sheetSchedule,
+              scheduledExport: kept.scheduledExport,
+            },
+            appendVersion(kept.versions, draft.sql, new Date().toISOString()),
           ),
         );
         const item = toQueryItem(saved);
@@ -414,6 +440,15 @@ function Console({ ctx }: { ctx: PluginContext }) {
     try {
       await enqueue(async () => {
         if (draft.id && draft.id !== id) await persistDraft(draft);
+        const removed = queriesRef.current.find(query => query.id === id);
+        let orphan = false;
+        if (removed?.sheetSchedule) {
+          try {
+            await deleteExportSchedule(ctx.owox, removed.sheetSchedule.scheduleId);
+          } catch {
+            orphan = true;
+          }
+        }
         await ctx.collections<QueryDocument>(QUERIES_COLLECTION).delete(id);
         let items = queriesRef.current.filter(query => query.id !== id);
         if (items.length === 0) {
@@ -422,10 +457,13 @@ function Console({ ctx }: { ctx: PluginContext }) {
         }
         queriesRef.current = items;
         setQueries(items);
-        if (selectedId !== id) return;
-        const next = landingQuery(items) ?? items[0];
-        if (!next) return;
-        showQuery(next);
+        if (selectedId === id) {
+          const next = landingQuery(items) ?? items[0];
+          if (next) showQuery(next);
+        }
+        if (orphan) {
+          setNotice({ message: 'The query was deleted. Remove its schedule in Plugins → Schedules.' });
+        }
       });
     } catch (cause) {
       setNotice({ message: describeError(cause) });
@@ -478,6 +516,7 @@ function Console({ ctx }: { ctx: PluginContext }) {
     await enqueue(async () => {
       const current = queriesRef.current.find(query => query.id === input.id);
       if (!current) return;
+      const kept = (await readKept(input.id)) ?? current;
       const saved = await ctx.collections<QueryDocument>(QUERIES_COLLECTION).put(
         input.id,
         storedQuery(
@@ -493,6 +532,8 @@ function Console({ ctx }: { ctx: PluginContext }) {
               ranAt: new Date().toISOString(),
               sql: input.sql,
             },
+            sheetSchedule: kept.sheetSchedule,
+            scheduledExport: kept.scheduledExport,
           },
           current.versions,
         ),
@@ -510,6 +551,7 @@ function Console({ ctx }: { ctx: PluginContext }) {
       await enqueue(async () => {
         const current = queriesRef.current.find(query => query.id === queryId);
         if (!current?.lastRun) return;
+        const kept = (await readKept(queryId)) ?? current;
         const saved = await ctx.collections<QueryDocument>(QUERIES_COLLECTION).put(
           queryId,
           storedQuery(
@@ -519,6 +561,8 @@ function Console({ ctx }: { ctx: PluginContext }) {
               description: current.description,
               exportTarget: current.exportTarget,
               lastRun: null,
+              sheetSchedule: kept.sheetSchedule,
+              scheduledExport: kept.scheduledExport,
             },
             current.versions,
           ),
@@ -531,6 +575,37 @@ function Console({ ctx }: { ctx: PluginContext }) {
     } catch (cause) {
       if (shownRun.current === token) setNotice({ message: describeError(cause) });
     }
+  }
+
+  async function writeSheetSchedule(id: string, sheetSchedule: SheetSchedule | null) {
+    await enqueue(async () => {
+      const current = queriesRef.current.find(query => query.id === id);
+      if (!current) return;
+      const kept = (await readKept(id)) ?? current;
+      const saved = await ctx.collections<QueryDocument>(QUERIES_COLLECTION).put(
+        id,
+        storedQuery(
+          {
+            title: current.title,
+            sql: current.sql,
+            description: current.description,
+            exportTarget: current.exportTarget,
+            lastRun: kept.lastRun,
+            sheetSchedule,
+            scheduledExport: kept.scheduledExport,
+          },
+          kept.versions,
+        ),
+      );
+      replaceQuery(toQueryItem(saved));
+    });
+  }
+
+  async function reloadQuery(id: string) {
+    await enqueue(async () => {
+      const kept = await readKept(id);
+      if (kept) replaceQuery(kept);
+    });
   }
 
   async function onRun() {
@@ -1038,6 +1113,22 @@ function Console({ ctx }: { ctx: PluginContext }) {
                   : null
               }
               sheetRoot={shellRef}
+              schedule={
+                selected
+                  ? {
+                      queryId: selected.id,
+                      dirty: queryIsDirty(selected, title, sql, description, exportTarget),
+                      projectId,
+                      location,
+                      sheetSchedule: selected.sheetSchedule,
+                      scheduledExport: selected.scheduledExport,
+                      http: ctx.owox,
+                      actions: ctx.actions ?? null,
+                      onSheetSchedule: next => writeSheetSchedule(selected.id, next),
+                      onRan: () => reloadQuery(selected.id),
+                    }
+                  : null
+              }
             />
             <span className="preview-meta">
               {restoring

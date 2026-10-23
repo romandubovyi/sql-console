@@ -16,6 +16,8 @@ Download CSV saves the rows on the current preview page. A later page is a separ
 
 Export opens a side sheet. This page sends the preview page. All rows reads the current BigQuery job and can send up to 100,000 rows to a spreadsheet. A document can take 2,000 cells. Several queries can share one spreadsheet. Choose an existing sheet to replace its rows, or choose Create a new sheet to add a tab and leave the others unchanged. A blank new-sheet name uses the query title. A document gets a new heading and table at the end, and earlier text stays.
 
+A spreadsheet target can also run on a schedule. Save the query first, export once so the sheet tab exists, then choose a daily or weekly time. OWOX starts that run even when SQL-Console is closed. The run uses the saved SQL and the GCP project and location from the moment the schedule was saved, then replaces that sheet. It stops above 100,000 rows. A document stays manual. Pause, resume, and delete are also under Plugins → Schedules. The schedule runs on a Cloudflare Worker. The page stays on GitHub Pages. Installing the plugin says that this code runs with the installing member's access while the plugin is closed.
+
 The Credential also requests Sheets, Docs, and read-only Drive file metadata. After this update, select the Credential again. Enable the Google Sheets API, Google Docs API, and Google Drive API on the GCP project that owns the key.
 
 The plugin cannot share a file. Open the Sheet or Doc, choose Share, and add the service account address as Editor. The list shows files that account can already open. Pasting a link uses the same access.

@@ -649,6 +649,31 @@ td {
   font-size: 0.8125rem;
 }
 
+.schedule-block {
+  display: grid;
+  gap: 0.75rem;
+  padding-top: 0.25rem;
+  border-top: 1px solid var(--border);
+}
+
+.schedule-block h3 {
+  margin: 0;
+  font-size: 0.9375rem;
+  font-weight: 600;
+}
+
+.schedule-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.6rem;
+}
+
+.schedule-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
 @keyframes sheet-in {
   from {
     transform: translateX(1.25rem);

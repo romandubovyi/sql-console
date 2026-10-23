@@ -12,6 +12,9 @@ import {
   type ExportTarget,
 } from './export-target.ts';
 import { listSharedFiles, listSheetTitles, writeDocument, writeSpreadsheet, type SharedFile } from './google-export.ts';
+import { ScheduleSection } from './ScheduleSection.tsx';
+import type { ScheduledExport, SheetSchedule } from './queries.ts';
+import type { ScheduleHttp } from './schedule.ts';
 
 type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
@@ -27,6 +30,21 @@ interface ExportPanelProps {
   signal: AbortSignal;
   job: CredentialJob | null;
   sheetRoot: RefObject<HTMLElement | null>;
+  schedule: {
+    queryId: string;
+    dirty: boolean;
+    projectId: string;
+    location: string;
+    sheetSchedule: SheetSchedule | null;
+    scheduledExport: ScheduledExport | null;
+    http: ScheduleHttp;
+    actions: {
+      start(name: string, input?: unknown): Promise<{ id: string }>;
+      wait(id: string): Promise<unknown>;
+    } | null;
+    onSheetSchedule: (schedule: SheetSchedule | null) => Promise<void>;
+    onRan: () => Promise<void>;
+  } | null;
 }
 
 function rowCount(rows: number): string {
@@ -53,6 +71,7 @@ export function ExportPanel({
   signal,
   job,
   sheetRoot,
+  schedule,
 }: ExportPanelProps) {
   const sheetRef = useRef<HTMLElement>(null);
   const [open, setOpen] = useState(false);
@@ -191,6 +210,17 @@ export function ExportPanel({
   const visible = files.filter(file => file.kind === kind);
   const known = visible.some(file => file.id === fileId);
   const exportingAll = scope === 'all' && Boolean(job);
+  const scheduledTitle = sheetTitle(sheetName, queryTitle);
+  const tabState =
+    kind !== 'sheet' || !fileId
+      ? 'none'
+      : titleLoad === undefined
+        ? 'loading'
+        : titleLoad === null
+          ? 'unknown'
+          : titleLoad.includes(scheduledTitle)
+            ? 'ready'
+            : 'create';
   const canExport =
     Boolean(fetchImpl) && fileId !== '' && columns.length > 0 && !busy && !exporting && sheetReady && (scope === 'page' || Boolean(job));
 
@@ -446,6 +476,23 @@ export function ExportPanel({
                   <p className={message.tone === 'error' ? 'banner' : 'history-note'} role={message.tone === 'error' ? 'alert' : 'status'}>
                     {message.text}
                   </p>
+                ) : null}
+                {kind === 'sheet' && schedule ? (
+                  <ScheduleSection
+                    queryId={schedule.queryId}
+                    queryTitle={queryTitle}
+                    dirty={schedule.dirty}
+                    projectId={schedule.projectId}
+                    location={schedule.location}
+                    fileId={fileId}
+                    tabState={tabState}
+                    sheetSchedule={schedule.sheetSchedule}
+                    scheduledExport={schedule.scheduledExport}
+                    http={schedule.http}
+                    actions={schedule.actions}
+                    onSheetSchedule={schedule.onSheetSchedule}
+                    onRan={schedule.onRan}
+                  />
                 ) : null}
               </div>
               <footer className="side-sheet-footer">

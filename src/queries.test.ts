@@ -12,6 +12,8 @@ import {
   lastRunExpiredMessage,
   normalizeLastRun,
   normalizeQuery,
+  normalizeScheduledExport,
+  normalizeSheetSchedule,
   queryIsDirty,
   UNTITLED_QUERY,
 } from './queries.ts';
@@ -135,6 +137,37 @@ describe('normalizeLastRun', () => {
 
   it('names the time in the expired-result message', () => {
     assert.match(lastRunExpiredMessage(run.ranAt), /Last run .+BigQuery no longer has this result/);
+  });
+});
+
+describe('normalizeSheetSchedule', () => {
+  const schedule = {
+    scheduleId: '11111111-1111-4111-8111-111111111111',
+    projectId: 'owox-marketing',
+    location: 'EU',
+    cron: '0 9 * * *',
+    timeZone: 'Europe/Kyiv',
+  };
+
+  it('keeps a captured project and a time zone that contains a slash', () => {
+    assert.deepEqual(normalizeSheetSchedule(schedule), schedule);
+    assert.deepEqual(normalizeSheetSchedule({ ...schedule, location: '' }), { ...schedule, location: '' });
+    assert.equal(normalizeQuery({ sheetSchedule: schedule }).sheetSchedule?.timeZone, 'Europe/Kyiv');
+  });
+
+  it('drops a broken id, cron, or time zone', () => {
+    assert.equal(normalizeSheetSchedule({ ...schedule, scheduleId: 'job 1' }), null);
+    assert.equal(normalizeSheetSchedule({ ...schedule, projectId: 'owox/marketing' }), null);
+    assert.equal(normalizeSheetSchedule({ ...schedule, cron: '0 9 * * *\n' }), null);
+    assert.equal(normalizeSheetSchedule({ ...schedule, timeZone: 'Europe Kyiv' }), null);
+    assert.equal(normalizeScheduledExport({ ranAt: 'yesterday', status: 'ok', message: 'Wrote 1 row.', rows: 1 }), null);
+    const clipped = normalizeScheduledExport({
+      ranAt: '2026-10-23T09:00:00.000Z',
+      status: 'error',
+      message: 'x'.repeat(600),
+      rows: null,
+    });
+    assert.equal(clipped?.message.length, 500);
   });
 });
 

@@ -6,6 +6,9 @@ const EXPORT_PAGE_SIZE = 5_000;
 export const EXPORT_ROW_LIMIT = 100_000;
 const POLL_WAIT_MS = 8_000;
 const MAX_POLLS = 2;
+const SCHEDULE_POLL_WAIT_MS = 20_000;
+const SCHEDULE_MAX_POLLS = 40;
+const SCHEDULE_TIMEOUT = 'The scheduled export ran out of time.';
 
 export interface PreviewTable {
   columns: string[];
@@ -179,6 +182,66 @@ export type PageOutcome = QueryOutcome | { status: 'expired' };
 export function queryResultIsGone(status: number, message: string): boolean {
   if (status === 404) return true;
   return /not found: job|\bjob\b[^.]{0,80}\bexpired\b|\bhas expired\b/i.test(message);
+}
+
+/** Starts a read-only job and waits until it finishes or the deadline aborts. Does not cancel the job. */
+export async function runBigQueryJob(input: RunPreviewInput): Promise<QueryOutcome> {
+  const prepared = prepareReadOnlyQuery(input.sql);
+  if ('error' in prepared) return { status: 'error', message: prepared.error };
+  if (input.signal?.aborted) return { status: 'error', message: SCHEDULE_TIMEOUT };
+
+  const projectId = encodeURIComponent(input.projectId);
+  const queryUrl = new URL(`https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/queries`);
+  if (input.location) queryUrl.searchParams.set('location', input.location);
+
+  let response: Response;
+  try {
+    response = await input.fetchImpl(queryUrl, {
+      method: 'POST',
+      headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        query: prepared.sql,
+        useLegacySql: false,
+        maxResults: 0,
+        timeoutMs: QUERY_WAIT_MS,
+      }),
+      signal: input.signal,
+    });
+  } catch (cause) {
+    if (input.signal?.aborted) return { status: 'error', message: SCHEDULE_TIMEOUT };
+    throw cause;
+  }
+  let body = await readBody(response);
+  if (!response.ok) return { status: 'error', message: errorText(asRecord(body)) ?? `BigQuery answered ${response.status}` };
+
+  for (let poll = 0; poll <= SCHEDULE_MAX_POLLS; poll += 1) {
+    const outcome = interpretQueryBody(body);
+    if (outcome.status !== 'pending') return outcome;
+    if (poll === SCHEDULE_MAX_POLLS) return { status: 'error', message: SCHEDULE_TIMEOUT };
+
+    const resultsUrl = new URL(
+      `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/queries/${encodeURIComponent(outcome.jobId)}`,
+    );
+    resultsUrl.searchParams.set('maxResults', '0');
+    resultsUrl.searchParams.set('timeoutMs', String(SCHEDULE_POLL_WAIT_MS));
+    const location = outcome.location ?? input.location;
+    if (location) resultsUrl.searchParams.set('location', location);
+
+    let next: Response;
+    try {
+      next = await input.fetchImpl(resultsUrl, {
+        headers: { Accept: 'application/json' },
+        signal: input.signal,
+      });
+    } catch (cause) {
+      if (input.signal?.aborted) return { status: 'error', message: SCHEDULE_TIMEOUT };
+      throw cause;
+    }
+    body = await readBody(next);
+    if (!next.ok) return { status: 'error', message: errorText(asRecord(body)) ?? `BigQuery answered ${next.status}` };
+  }
+
+  return { status: 'error', message: SCHEDULE_TIMEOUT };
 }
 
 /** Reads every row of a finished job, up to EXPORT_ROW_LIMIT. */

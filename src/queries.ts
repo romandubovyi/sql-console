@@ -22,6 +22,24 @@ export interface LastRun {
   sql: string;
 }
 
+/** GCP project and sheet cadence captured when the schedule was saved. */
+export interface SheetSchedule {
+  scheduleId: string;
+  projectId: string;
+  /** Empty lets BigQuery choose the location. */
+  location: string;
+  cron: string;
+  timeZone: string;
+}
+
+/** Outcome of the last scheduled spreadsheet write, including a failed one. */
+export interface ScheduledExport {
+  ranAt: string;
+  status: 'ok' | 'error';
+  message: string;
+  rows: number | null;
+}
+
 export interface QueryDocument {
   title: string;
   sql: string;
@@ -29,6 +47,8 @@ export interface QueryDocument {
   versions: QueryVersion[];
   exportTarget: ExportTarget | null;
   lastRun: LastRun | null;
+  sheetSchedule: SheetSchedule | null;
+  scheduledExport: ScheduledExport | null;
 }
 
 export interface QueryItem {
@@ -39,6 +59,8 @@ export interface QueryItem {
   versions: QueryVersion[];
   exportTarget: ExportTarget | null;
   lastRun: LastRun | null;
+  sheetSchedule: SheetSchedule | null;
+  scheduledExport: ScheduledExport | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -49,11 +71,23 @@ export interface PreferencesDocument {
 }
 
 export function emptyQuery(): QueryDocument {
-  return { title: UNTITLED_QUERY, sql: '', description: '', versions: [], exportTarget: null, lastRun: null };
+  return {
+    title: UNTITLED_QUERY,
+    sql: '',
+    description: '',
+    versions: [],
+    exportTarget: null,
+    lastRun: null,
+    sheetSchedule: null,
+    scheduledExport: null,
+  };
 }
 
 export function storedQuery(
-  input: Pick<QueryDocument, 'title' | 'sql' | 'description' | 'exportTarget' | 'lastRun'>,
+  input: Pick<
+    QueryDocument,
+    'title' | 'sql' | 'description' | 'exportTarget' | 'lastRun' | 'sheetSchedule' | 'scheduledExport'
+  >,
   versions: QueryVersion[],
 ): QueryDocument {
   return {
@@ -63,6 +97,8 @@ export function storedQuery(
     versions,
     exportTarget: normalizeExportTarget(input.exportTarget),
     lastRun: normalizeLastRun(input.lastRun),
+    sheetSchedule: normalizeSheetSchedule(input.sheetSchedule),
+    scheduledExport: normalizeScheduledExport(input.scheduledExport),
   };
 }
 
@@ -144,7 +180,37 @@ export function normalizeQuery(document: unknown): QueryDocument {
     versions,
     exportTarget: normalizeExportTarget(record?.exportTarget),
     lastRun: normalizeLastRun(record?.lastRun),
+    sheetSchedule: normalizeSheetSchedule(record?.sheetSchedule),
+    scheduledExport: normalizeScheduledExport(record?.scheduledExport),
   };
+}
+
+export function normalizeSheetSchedule(value: unknown): SheetSchedule | null {
+  const record = asRecord(value);
+  if (!record) return null;
+  const scheduleId = cleanToken(record.scheduleId, 64);
+  const projectId = cleanToken(record.projectId, 200);
+  const location = typeof record.location === 'string' ? record.location.trim() : '';
+  const cronRaw = typeof record.cron === 'string' ? record.cron : '';
+  const cron = cronRaw.trim();
+  const timeZone = typeof record.timeZone === 'string' ? record.timeZone.trim() : '';
+  if (!scheduleId || !projectId) return null;
+  if (location && !cleanToken(location, 64)) return null;
+  if (!cron || cron.length > 255 || /[\r\n]/.test(cronRaw)) return null;
+  if (!timeZone || timeZone.length > 64 || !/^[A-Za-z0-9_/+-]+$/.test(timeZone)) return null;
+  return { scheduleId, projectId, location, cron, timeZone };
+}
+
+export function normalizeScheduledExport(value: unknown): ScheduledExport | null {
+  const record = asRecord(value);
+  if (!record) return null;
+  const ranAt = typeof record.ranAt === 'string' ? record.ranAt : '';
+  const status = record.status === 'ok' || record.status === 'error' ? record.status : null;
+  const message = typeof record.message === 'string' ? record.message.slice(0, 500) : '';
+  const rows = record.rows === null ? null : typeof record.rows === 'number' ? record.rows : Number.NaN;
+  if (!status || !message || Number.isNaN(Date.parse(ranAt))) return null;
+  if (rows !== null && (!Number.isInteger(rows) || rows < 0)) return null;
+  return { ranAt, status, message, rows };
 }
 
 export function normalizeLastRun(value: unknown): LastRun | null {
@@ -185,6 +251,8 @@ export function toQueryItem(stored: PluginCollectionDocument<unknown>): QueryIte
     versions: document.versions,
     exportTarget: document.exportTarget,
     lastRun: document.lastRun,
+    sheetSchedule: document.sheetSchedule,
+    scheduledExport: document.scheduledExport,
     createdAt: stored.createdAt,
     updatedAt: stored.updatedAt,
   };

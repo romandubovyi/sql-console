@@ -1,0 +1,5 @@
+name = "sql-console"
+main = "worker/index.ts"
+compatibility_date = "2026-10-01"
+workers_dev = true
+account_id = "8d722ba54cae0259dcd611ee5d145387"

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { EXPORT_ROW_LIMIT, fetchAllResultRows, fetchResultPage, formatBytes, formatCell, interpretQueryBody, queryResultIsGone } from './bigquery.ts';
+import { EXPORT_ROW_LIMIT, fetchAllResultRows, fetchResultPage, formatBytes, formatCell, interpretQueryBody, queryResultIsGone, runBigQueryJob } from './bigquery.ts';
 
 test('formats scalar, empty, and nested cells', () => {
   assert.equal(formatCell(null), '');
@@ -100,6 +100,45 @@ test('treats a missing query job as expired', async () => {
     pageSize: 100,
   });
   assert.deepEqual(outcome, { status: 'expired' });
+});
+
+test('waits for a scheduled job without cancelling it', async () => {
+  const calls: string[] = [];
+  const bodies = [
+    { jobComplete: false, jobReference: { jobId: 'job_1', location: 'EU' } },
+    { jobComplete: true, jobReference: { jobId: 'job_1', location: 'EU' }, schema: { fields: [{ name: 'n' }] }, totalRows: '1' },
+  ];
+  const outcome = await runBigQueryJob({
+    fetchImpl: async (input, init) => {
+      calls.push(`${init?.method ?? 'GET'} ${String(input)}`);
+      const body = bodies[calls.length - 1];
+      if (!body) throw new Error('unexpected poll');
+      return new Response(JSON.stringify(body), { status: 200 });
+    },
+    projectId: 'owox-marketing',
+    location: 'EU',
+    sql: 'SELECT 1',
+  });
+  assert.equal(outcome.status, 'ok');
+  assert.equal(calls.length, 2);
+  assert.match(calls[0] ?? '', /POST .*\/queries\?location=EU$/);
+  assert.match(calls[0] ?? '', /bigquery\/v2\/projects\/owox-marketing\/queries/);
+  assert.match(calls[1] ?? '', /maxResults=0/);
+  assert.equal(calls.some(call => call.includes('/cancel')), false);
+});
+
+test('stops a scheduled job when the deadline has already passed', async () => {
+  const signal = AbortSignal.abort();
+  const outcome = await runBigQueryJob({
+    fetchImpl: async () => {
+      throw new Error('should not query');
+    },
+    projectId: 'owox-marketing',
+    location: null,
+    sql: 'SELECT 1',
+    signal,
+  });
+  assert.deepEqual(outcome, { status: 'error', message: 'The scheduled export ran out of time.' });
 });
 
 test('reports a BigQuery error and a still-running job', () => {

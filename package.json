@@ -1,14 +1,15 @@
 {
   "name": "sql-console",
   "private": true,
-  "version": "0.3.13",
+  "version": "0.4.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
     "typecheck": "tsc -b",
     "lint": "oxlint",
-    "test": "node --test src/sql.test.ts src/bigquery.test.ts src/errors.test.ts src/paging.test.ts src/queries.test.ts src/diff.test.ts src/storages.test.ts src/data-mart.test.ts src/sources.test.ts src/completion.test.ts src/csv.test.ts src/credential.test.ts src/export-target.test.ts src/google-export.test.ts",
+    "test": "node --test src/sql.test.ts src/bigquery.test.ts src/errors.test.ts src/paging.test.ts src/queries.test.ts src/diff.test.ts src/storages.test.ts src/data-mart.test.ts src/sources.test.ts src/completion.test.ts src/csv.test.ts src/credential.test.ts src/export-target.test.ts src/google-export.test.ts src/schedule.test.ts src/scheduled-export.test.ts",
+    "worker:deploy": "wrangler deploy",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -26,6 +27,7 @@
     "@vitejs/plugin-react": "^6.1.2",
     "oxlint": "^1.88.0",
     "typescript": "~6.0.3",
-    "vite": "^8.3.4"
+    "vite": "^8.3.4",
+    "wrangler": "^4.152.0"
   }
 }
