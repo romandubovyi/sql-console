@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { EXPORT_ROW_LIMIT, fetchAllResultRows, fetchResultPage, formatBytes, formatCell, interpretQueryBody, queryResultIsGone, runBigQueryJob } from './bigquery.ts';
+import { dryRunBigQuery, EXPORT_ROW_LIMIT, fetchAllResultRows, fetchResultPage, formatBytes, formatCell, interpretQueryBody, queryResultIsGone, runBigQueryJob } from './bigquery.ts';
 
 test('formats scalar, empty, and nested cells', () => {
   assert.equal(formatCell(null), '');
@@ -139,6 +139,67 @@ test('stops a scheduled job when the deadline has already passed', async () => {
     signal,
   });
   assert.deepEqual(outcome, { status: 'error', message: 'The scheduled export ran out of time.' });
+});
+
+test('dry run asks BigQuery not to execute the query', async () => {
+  let sent = '';
+  let requested = '';
+  const outcome = await dryRunBigQuery({
+    fetchImpl: async (input, init) => {
+      requested = String(input);
+      sent = String(init?.body);
+      return new Response(
+        JSON.stringify({ jobComplete: true, totalBytesProcessed: '4096', schema: { fields: [{ name: 'n' }] } }),
+        { status: 200 },
+      );
+    },
+    projectId: 'owox-marketing',
+    location: 'EU',
+    sql: 'SELECT 1',
+  });
+  const body = JSON.parse(sent) as { dryRun?: boolean; query?: string; maxResults?: number };
+  assert.equal(body.dryRun, true);
+  assert.equal(body.query, 'SELECT 1');
+  assert.equal(body.maxResults, undefined);
+  assert.match(requested, /\/queries\?location=EU$/);
+  assert.deepEqual(outcome, { valid: true, bytesProcessed: '4096', message: null });
+});
+
+test('dry run reads bytes nested under job statistics', async () => {
+  const outcome = await dryRunBigQuery({
+    fetchImpl: async () =>
+      new Response(JSON.stringify({ statistics: { query: { totalBytesProcessed: '10' } } }), { status: 200 }),
+    projectId: 'owox-marketing',
+    location: null,
+    sql: 'SELECT 1',
+  });
+  assert.equal(outcome.valid, true);
+  assert.equal(outcome.bytesProcessed, '10');
+});
+
+test('dry run reports a BigQuery error and refuses a write locally', async () => {
+  const failed = await dryRunBigQuery({
+    fetchImpl: async () =>
+      new Response(JSON.stringify({ error: { message: 'Syntax error: Unexpected keyword' } }), { status: 400 }),
+    projectId: 'owox-marketing',
+    location: null,
+    sql: 'SELECT',
+  });
+  assert.deepEqual(failed, { valid: false, bytesProcessed: null, message: 'Syntax error: Unexpected keyword' });
+
+  let called = false;
+  const write = await dryRunBigQuery({
+    fetchImpl: async () => {
+      called = true;
+      return new Response('{}', { status: 200 });
+    },
+    projectId: 'owox-marketing',
+    location: null,
+    sql: 'DELETE FROM events WHERE true',
+  });
+  assert.equal(called, false);
+  assert.equal(write.valid, false);
+  assert.match(write.message ?? '', /SELECT or WITH/);
 });
 
 test('reports a BigQuery error and a still-running job', () => {

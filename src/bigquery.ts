@@ -119,6 +119,52 @@ export function formatBytes(value: string | null): string | null {
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }
 
+export interface DryRunResult {
+  valid: boolean;
+  bytesProcessed: string | null;
+  message: string | null;
+}
+
+/** Asks BigQuery whether the query is valid and how many bytes it would read. Does not return rows. */
+export async function dryRunBigQuery(input: RunPreviewInput): Promise<DryRunResult> {
+  const prepared = prepareReadOnlyQuery(input.sql);
+  if ('error' in prepared) return { valid: false, bytesProcessed: null, message: prepared.error };
+
+  const queryUrl = new URL(
+    `https://bigquery.googleapis.com/bigquery/v2/projects/${encodeURIComponent(input.projectId)}/queries`,
+  );
+  if (input.location) queryUrl.searchParams.set('location', input.location);
+
+  const response = await input.fetchImpl(queryUrl, {
+    method: 'POST',
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      query: prepared.sql,
+      useLegacySql: false,
+      dryRun: true,
+    }),
+    signal: input.signal,
+  });
+  const body = await readBody(response);
+  const record = asRecord(body);
+  if (!response.ok) {
+    return {
+      valid: false,
+      bytesProcessed: null,
+      message: errorText(record) ?? `BigQuery answered ${response.status}`,
+    };
+  }
+  const message = errorText(record);
+  if (message) return { valid: false, bytesProcessed: null, message };
+  return { valid: true, bytesProcessed: processedBytes(record), message: null };
+}
+
+function processedBytes(body: Record<string, unknown> | null): string | null {
+  if (typeof body?.totalBytesProcessed === 'string') return body.totalBytesProcessed;
+  const query = asRecord(asRecord(body?.statistics)?.query);
+  return typeof query?.totalBytesProcessed === 'string' ? query.totalBytesProcessed : null;
+}
+
 export async function runBigQueryPreview(input: RunPreviewInput): Promise<QueryOutcome> {
   const prepared = prepareReadOnlyQuery(input.sql);
   if ('error' in prepared) return { status: 'error', message: prepared.error };

@@ -68,15 +68,16 @@ export function CreateDataMart({
   return (
     <div className="mart" ref={rootRef}>
       <button
-        className="ghost"
+        className="ghost tool"
         type="button"
+        aria-label="Create data mart"
+        title="Create data mart"
         aria-expanded={open}
         aria-controls="create-data-mart"
         disabled={!sqlReady}
         onClick={toggle}
       >
         <Database size={14} aria-hidden="true" />
-        Create data mart
       </button>
       {open ? (
         // The plugin frame has no allow-forms permission, so this panel is not a form.

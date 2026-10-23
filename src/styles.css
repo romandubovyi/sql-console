@@ -10,6 +10,7 @@
   --primary: oklch(0.6179 0.2295 250.87);
   --primary-foreground: oklch(0.985 0 0);
   --danger: oklch(0.55 0.2 25);
+  --success: oklch(0.48 0.12 145);
   --sidebar: oklch(0.985 0 0);
   --sidebar-foreground: oklch(0.145 0 0);
   --sidebar-accent: oklch(0.94 0 0);
@@ -29,6 +30,7 @@
   --muted-foreground: oklch(0.708 0 0);
   --border: oklch(0.269 0 0);
   --danger: oklch(0.75 0.14 25);
+  --success: oklch(0.78 0.12 145);
   --sidebar: oklch(0.145 0 0);
   --sidebar-foreground: oklch(0.985 0 0);
   --sidebar-accent: oklch(0.269 0 0);
@@ -110,6 +112,36 @@ select {
   align-items: center;
   padding: 0.55rem 0.75rem;
   border-bottom: 1px solid var(--border);
+}
+
+.editor-toolbar {
+  flex-wrap: nowrap;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.editor-toolbar .title-input {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.editor-toolbar .editor-mode {
+  flex: none;
+}
+
+.editor-toolbar .editor-mode button {
+  padding: 0.3rem 0.45rem;
+}
+
+.editor-actions {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.editor-actions .primary {
+  padding: 0.35rem 0.55rem;
 }
 
 .sidebar-header strong,
@@ -290,6 +322,40 @@ select {
   flex: none;
 }
 
+.dry-run {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 16rem;
+  flex: none;
+  align-items: center;
+  gap: 0.3rem;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.dry-run span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dry-run.valid {
+  color: var(--success);
+}
+
+.dry-run.invalid {
+  color: var(--danger);
+}
+
+.dry-run .spin {
+  animation: dry-spin 0.8s linear infinite;
+}
+
+@keyframes dry-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .editor-foot-actions {
   display: flex;
   flex: none;
@@ -330,6 +396,27 @@ button.primary {
 button.ghost {
   border: 1px solid var(--border);
   background: var(--background);
+}
+
+button.ghost.tool {
+  position: relative;
+  padding: 0.35rem;
+}
+
+button.ghost.tool[aria-expanded='true'] {
+  background: var(--sidebar-accent);
+  color: var(--sidebar-accent-foreground);
+}
+
+button.ghost.tool[data-empty='true']::after {
+  content: '';
+  position: absolute;
+  top: 0.2rem;
+  right: 0.2rem;
+  width: 0.35rem;
+  height: 0.35rem;
+  border-radius: 999px;
+  background: var(--danger);
 }
 
 button:disabled {
@@ -515,6 +602,31 @@ td {
   display: flex;
   justify-content: flex-end;
   gap: 0.5rem;
+}
+
+.settings-panel .storage-fields {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.settings-panel .page-size {
+  display: grid;
+  gap: 0.25rem;
+  align-items: stretch;
+}
+
+.settings-panel .project-input,
+.settings-panel .location-input {
+  width: 100%;
+}
+
+.settings-panel .storage-suggest {
+  position: static;
+  width: auto;
+  max-height: 10rem;
+  border: 0;
+  padding: 0;
+  box-shadow: none;
 }
 
 .import-panel {

@@ -1,4 +1,4 @@
-import { FileInput } from 'lucide-react';
+import { FileInput, Upload } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { describeError } from './errors.ts';
 import type { SqlOrigin } from './queries.ts';
@@ -164,29 +164,32 @@ export function SqlImport({ sql, origin, disabled, client, onImport, onUpdated }
 
   return (
     <div className="mart" ref={rootRef}>
-      <button className="ghost" type="button" aria-expanded={open} disabled={disabled} onClick={toggle}>
+      <button
+        className="ghost tool"
+        type="button"
+        aria-label="Import SQL"
+        title={origin ? `Import SQL. This query is from ${origin.title}` : 'Import SQL'}
+        aria-expanded={open}
+        disabled={disabled}
+        onClick={toggle}
+      >
         <FileInput size={14} aria-hidden="true" />
-        Import SQL
       </button>
       {origin?.kind === 'data-mart' ? (
         <button
-          className="ghost"
+          className="ghost tool"
           type="button"
+          aria-label={`Update data mart ${origin.title}`}
           disabled={disabled || sql.trim() === '' || busy}
-          title={`Replace the SQL on ${origin.title}`}
+          title={`Update the SQL on ${origin.title}`}
           onClick={() => {
             setOpen(false);
             setError(null);
             setConfirmUpdate(true);
           }}
         >
-          Update data mart
+          <Upload size={14} aria-hidden="true" />
         </button>
-      ) : null}
-      {origin ? (
-        <span className="import-source" title={origin.title}>
-          {origin.kind === 'data-mart' ? `From ${origin.title}` : `From report ${origin.title}`}
-        </span>
       ) : null}
       {open ? (
         <div className="mart-panel import-panel" id="import-sql" role="dialog" aria-label="Import SQL">

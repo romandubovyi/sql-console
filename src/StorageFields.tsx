@@ -13,6 +13,7 @@ interface StorageFieldsProps {
   options: readonly BigQueryStorageOption[];
   status: 'loading' | 'ready' | 'error';
   unread: number;
+  autoFocusProject?: boolean;
   onProjectId: (value: string) => void;
   onLocation: (value: string) => void;
 }
@@ -25,6 +26,7 @@ export function StorageFields({
   options,
   status,
   unread,
+  autoFocusProject = false,
   onProjectId,
   onLocation,
 }: StorageFieldsProps) {
@@ -71,6 +73,7 @@ export function StorageFields({
 
   function onKeyDown(event: KeyboardEvent<HTMLInputElement>) {
     if (event.key === 'Escape') {
+      if (openField) event.stopPropagation();
       setOpenField(null);
       return;
     }
@@ -116,6 +119,7 @@ export function StorageFields({
           spellCheck={false}
           value={projectId}
           placeholder="GCP project"
+          autoFocus={autoFocusProject}
           onFocus={() => open('project')}
           onBlur={onBlur}
           onKeyDown={onKeyDown}

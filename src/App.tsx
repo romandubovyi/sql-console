@@ -26,8 +26,9 @@ import {
   type PageSize,
 } from './paging.ts';
 import { MarkdownEditor } from './MarkdownEditor.tsx';
+import { QueryDryRun } from './QueryDryRun.tsx';
 import { QueryHistory, VersionDiff } from './QueryHistory.tsx';
-import { StorageFields } from './StorageFields.tsx';
+import { QuerySettings } from './QuerySettings.tsx';
 import {
   appendVersion,
   compareWithPrevious,
@@ -920,7 +921,7 @@ function Console({ ctx }: { ctx: PluginContext }) {
 
       <div ref={mainRef} className="main-column">
         <section className="editor-pane" aria-label={showingDescription ? 'Query description' : 'SQL editor'}>
-          <div className="pane-toolbar">
+          <div className="pane-toolbar editor-toolbar">
             <input
               className="title-input"
               aria-label="Query name"
@@ -945,54 +946,62 @@ function Console({ ctx }: { ctx: PluginContext }) {
                 {description.length}/{MAX_DESCRIPTION}
               </span>
             ) : null}
-            <button className="ghost" type="button" disabled={saveDisabled} onClick={() => void onSave()}>
-              <Save size={14} aria-hidden="true" />
-              {saving ? 'Saving…' : 'Save'}
-            </button>
-            <button className="primary" type="button" disabled={runDisabled} onClick={() => void onRun()}>
-              <Play size={14} aria-hidden="true" />
-              {running ? 'Running…' : 'Run'}
-            </button>
-            <SqlImport
-              sql={sql}
-              origin={sqlOrigin}
-              disabled={queryState !== 'ready'}
-              client={ctx.owox}
-              onImport={(nextSql, nextOrigin) => {
-                setSql(nextSql);
-                setSqlOrigin(nextOrigin);
-                showEditor('sql');
-                setNotice({
-                  message:
-                    nextOrigin.kind === 'report'
-                      ? `Imported the SQL “${nextOrigin.title}” will run.`
-                      : `Imported SQL from “${nextOrigin.title}”.`,
-                });
-              }}
-              onUpdated={message => setNotice({ message })}
-            />
-            <CreateDataMart
-              queryTitle={title}
-              sql={sql}
-              storages={storageOptions}
-              storageStatus={storageStatus}
-              creating={creatingMart}
-              error={martError}
-              createdId={createdMartId}
-              onCreate={input => void onCreateDataMart(input)}
-              onOpenCreated={() => {
-                if (createdMartId) ctx.ui.navigate(dataMartPath(ctx.projectId, createdMartId));
-              }}
-            />
-            <StorageFields
-              projectId={projectId}
-              location={location}
-              options={storageOptions}
-              status={storageStatus}
-              unread={storageUnread}
-              onProjectId={setProjectId}
-              onLocation={setLocation}
-            />
+            <div className="editor-actions">
+              <QuerySettings
+                projectId={projectId}
+                location={location}
+                options={storageOptions}
+                status={storageStatus}
+                unread={storageUnread}
+                onProjectId={setProjectId}
+                onLocation={setLocation}
+              />
+              <SqlImport
+                sql={sql}
+                origin={sqlOrigin}
+                disabled={queryState !== 'ready'}
+                client={ctx.owox}
+                onImport={(nextSql, nextOrigin) => {
+                  setSql(nextSql);
+                  setSqlOrigin(nextOrigin);
+                  showEditor('sql');
+                  setNotice({
+                    message:
+                      nextOrigin.kind === 'report'
+                        ? `Imported the SQL “${nextOrigin.title}” will run.`
+                        : `Imported SQL from “${nextOrigin.title}”.`,
+                  });
+                }}
+                onUpdated={message => setNotice({ message })}
+              />
+              <CreateDataMart
+                queryTitle={title}
+                sql={sql}
+                storages={storageOptions}
+                storageStatus={storageStatus}
+                creating={creatingMart}
+                error={martError}
+                createdId={createdMartId}
+                onCreate={input => void onCreateDataMart(input)}
+                onOpenCreated={() => {
+                  if (createdMartId) ctx.ui.navigate(dataMartPath(ctx.projectId, createdMartId));
+                }}
+              />
+              <button
+                className="ghost tool"
+                type="button"
+                aria-label={saving ? 'Saving…' : 'Save'}
+                title={saving ? 'Saving…' : 'Save'}
+                disabled={saveDisabled}
+                onClick={() => void onSave()}
+              >
+                <Save size={14} aria-hidden="true" />
+              </button>
+              <button className="primary" type="button" disabled={runDisabled} onClick={() => void onRun()}>
+                <Play size={14} aria-hidden="true" />
+                {running ? 'Running…' : 'Run'}
+              </button>
+            </div>
           </div>
           <div className="editor-body">
             {showingDiff ? (
@@ -1019,6 +1028,18 @@ function Console({ ctx }: { ctx: PluginContext }) {
               projectId={session?.projectId ?? null}
               jobId={session?.jobId ?? null}
               location={session?.location ?? null}
+            />
+            {sqlOrigin ? (
+              <span className="import-source" title={sqlOrigin.title}>
+                {sqlOrigin.kind === 'data-mart' ? sqlOrigin.title : `Report ${sqlOrigin.title}`}
+              </span>
+            ) : null}
+            <QueryDryRun
+              ctx={ctx}
+              sql={sql}
+              projectId={projectId}
+              location={location}
+              enabled={queryState === 'ready' && !showingDiff && editorMode === 'sql'}
             />
             <span className="editor-hint">{!showingDiff && editorMode === 'sql' ? 'Ctrl+Enter or Cmd+Enter' : ''}</span>
             <div className="editor-foot-actions">
@@ -1187,8 +1208,7 @@ function Console({ ctx }: { ctx: PluginContext }) {
             ) : null}
             {!trimmedProject && queryState === 'ready' ? (
               <p className="empty-note">
-                Choose a BigQuery storage from Project or Location, or type the GCP project id. Jobs run in that
-                project.
+                Open settings and set the GCP project. Jobs run in that project.
               </p>
             ) : null}
             {sqlChanged ? (
