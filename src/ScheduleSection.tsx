@@ -275,7 +275,7 @@ export function ScheduleSection({
               </label>
             ) : null}
           </div>
-          {dirty ? <p className="history-note">Save the query before scheduling it.</p> : null}
+          {dirty ? <p className="history-note">Press Save, next to Run, before scheduling this query.</p> : null}
           {!projectId.trim() ? <p className="history-note">Set a GCP project before saving the schedule.</p> : null}
           {!fileId ? <p className="history-note">Choose a spreadsheet before saving the schedule.</p> : null}
           {tabState === 'create' || tabState === 'unknown' ? (

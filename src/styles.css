@@ -140,8 +140,34 @@ select {
   gap: 0.35rem;
 }
 
-.editor-actions .primary {
+.editor-actions .primary,
+.editor-actions .save-query {
   padding: 0.35rem 0.55rem;
+}
+
+.toolbar-divider {
+  width: 1px;
+  align-self: stretch;
+  margin: 0.15rem 0.1rem;
+  background: var(--border);
+}
+
+button.ghost.save-query {
+  border-color: var(--primary);
+  color: var(--primary);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.save-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.45rem;
+  color: var(--success);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  white-space: nowrap;
 }
 
 .sidebar-header strong,

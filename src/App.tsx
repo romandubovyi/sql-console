@@ -1,5 +1,5 @@
 import { connect, exactCredential, type PluginContext } from '@owox/plugin-sdk';
-import { ChevronLeft, ChevronRight, Download, Play, Plus, Save, Trash2 } from 'lucide-react';
+import { Check, ChevronLeft, ChevronRight, Download, Play, Plus, Save, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   fetchResultPage,
@@ -516,7 +516,7 @@ function Console({ ctx }: { ctx: PluginContext }) {
 
   const trimmedProject = projectId.trim();
   const runDisabled = running || paging || !trimmedProject || sql.trim().length === 0 || queryState !== 'ready';
-  const saveDisabled = saving || !selected || !queryIsDirty(selected, title, sql, description, exportTarget);
+  const unsaved = Boolean(selected) && queryIsDirty(selected, title, sql, description, exportTarget);
 
   async function rememberRun(input: {
     id: string;
@@ -988,16 +988,25 @@ function Console({ ctx }: { ctx: PluginContext }) {
                   if (createdMartId) ctx.ui.navigate(dataMartPath(ctx.projectId, createdMartId));
                 }}
               />
-              <button
-                className="ghost tool"
-                type="button"
-                aria-label={saving ? 'Saving…' : 'Save'}
-                title={saving ? 'Saving…' : 'Save'}
-                disabled={saveDisabled}
-                onClick={() => void onSave()}
-              >
-                <Save size={14} aria-hidden="true" />
-              </button>
+              <span className="toolbar-divider" aria-hidden="true" />
+              {queryState === 'ready' && !unsaved && !saving ? (
+                <span className="save-state" title="This SQL is already saved as a version">
+                  <Check size={14} aria-hidden="true" />
+                  Saved
+                </span>
+              ) : (
+                <button
+                  className="ghost save-query"
+                  type="button"
+                  aria-label={saving ? 'Saving…' : 'Save'}
+                  title="Keep a version of this SQL. The editor text is kept as you type."
+                  disabled={saving || !unsaved}
+                  onClick={() => void onSave()}
+                >
+                  <Save size={14} aria-hidden="true" />
+                  {saving ? 'Saving…' : 'Save'}
+                </button>
+              )}
               <button className="primary" type="button" disabled={runDisabled} onClick={() => void onRun()}>
                 <Play size={14} aria-hidden="true" />
                 {running ? 'Running…' : 'Run'}
@@ -1007,8 +1016,9 @@ function Console({ ctx }: { ctx: PluginContext }) {
                 type them. Jobs use the plugin service account, not the key saved on the storage. Import SQL puts a data
                 mart's SQL, or the full SQL a report will run, into the editor. Update data mart appears after a data
                 mart import and writes this SQL back; a report is never written back. Create data mart makes a new SQL
-                data mart and does not change an existing one. Save keeps this query in SQL-Console. Run executes it and
-                shows the rows.
+                data mart and does not change an existing one. The editor text is kept as you type. Save stores a
+                version you can open under Versions, and does not change a data mart. Run executes the SQL and shows the
+                rows.
               </Hint>
             </div>
           </div>
@@ -1191,7 +1201,7 @@ function Console({ ctx }: { ctx: PluginContext }) {
                 selected
                   ? {
                       queryId: selected.id,
-                      dirty: queryIsDirty(selected, title, sql, description, exportTarget),
+                      dirty: unsaved,
                       projectId,
                       location,
                       sheetSchedule: selected.sheetSchedule,

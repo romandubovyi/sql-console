@@ -48,15 +48,15 @@ export function QueryHistory({ versions, open, headIndex, onOpenChange, onSelect
           Versions
         </button>
         <Hint label="Versions" placement="above">
-          Each save keeps a copy of the SQL. Compare two versions, then load one into the editor. Saving again does not
-          change the data mart.
+          Save, next to Run, keeps a copy of the SQL. Compare two versions, then load one into the editor. The editor text
+          is kept as you type. Save does not change the data mart.
         </Hint>
       </span>
       {open ? (
         <div className="history-panel" id="query-versions" role="region" aria-label="Query versions">
           <p className="history-note">{versionLabel} · Last 100 saves</p>
           {versions.length === 0 ? (
-            <p className="history-note">Save the query to keep a version.</p>
+            <p className="history-note">Press Save, next to Run, to keep a version.</p>
           ) : (
             <ul className="version-list">
               {versions.map((version, index) => (
