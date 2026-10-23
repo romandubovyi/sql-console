@@ -14,7 +14,7 @@ The query runs with the Google Service Account Credential you grant when install
 
 Download CSV saves the rows on the current preview page. A later page is a separate file.
 
-Export this page opens a side sheet and sends that same preview page to a Google Sheet or Google Doc saved on the query. Several queries can share one spreadsheet. Choose an existing sheet to replace its rows, or choose Create a new sheet to add a tab and leave the others unchanged. A blank new-sheet name uses the query title. A document gets a new heading and table at the end, and earlier text stays.
+Export opens a side sheet. This page sends the preview page. All rows reads the current BigQuery job and can send up to 100,000 rows to a spreadsheet. A document can take 2,000 cells. Several queries can share one spreadsheet. Choose an existing sheet to replace its rows, or choose Create a new sheet to add a tab and leave the others unchanged. A blank new-sheet name uses the query title. A document gets a new heading and table at the end, and earlier text stays.
 
 The Credential also requests Sheets, Docs, and read-only Drive file metadata. After this update, select the Credential again. Enable the Google Sheets API, Google Docs API, and Google Drive API on the GCP project that owns the key.
 

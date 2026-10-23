@@ -6,6 +6,7 @@ import {
   listSharedFiles,
   sharedFiles,
   sheetTitles,
+  spreadsheetValueChunks,
   writeDocument,
   writeSpreadsheet,
 } from './google-export.ts';
@@ -18,6 +19,11 @@ interface Call {
   url: string;
   method: string;
   body: unknown;
+}
+
+function rowCount(body: unknown): number {
+  if (!body || typeof body !== 'object' || !('values' in body)) return 0;
+  return Array.isArray(body.values) ? body.values.length : 0;
 }
 
 function scripted(responses: { status?: number; body: unknown }[]) {
@@ -86,6 +92,48 @@ describe('writeSpreadsheet', () => {
     assert.equal(calls.some(call => String(call.url).includes(':clear')), false);
     assert.match(calls[2]?.url ?? '', /valueInputOption=RAW/);
     assert.deepEqual(calls[2]?.body, { values: [['name'], ['Ada']] });
+  });
+
+  it('writes a sheet that does not fit in one request as later rows', async () => {
+    const cell = 'x'.repeat(4_000);
+    const { fetchImpl, calls } = scripted([
+      { body: { sheets: [{ properties: { title: 'Daily' } }] } },
+      { body: {} },
+      { body: {} },
+      { body: {} },
+    ]);
+    const written = await writeSpreadsheet(fetchImpl, {
+      fileId: FILE,
+      sheetName: 'Daily',
+      fallbackSheetName: 'Revenue',
+      mode: 'replace',
+      columns: ['name'],
+      rows: Array.from({ length: 225 }, () => [cell]),
+    });
+    assert.equal(written.status, 'ok');
+    const puts = calls.filter(call => call.method === 'PUT');
+    assert.equal(puts.length, 2);
+    assert.match(puts[0]?.url ?? '', /!A1/);
+    assert.match(puts[1]?.url ?? '', /!A226/);
+    assert.equal(rowCount(puts[0]?.body), 225);
+    assert.equal(rowCount(puts[1]?.body), 1);
+  });
+
+  it('rejects one sheet row that is still too large after the cell limit', async () => {
+    const cell = 'x'.repeat(4_000);
+    const width = 230;
+    const { fetchImpl, calls } = scripted([]);
+    const written = await writeSpreadsheet(fetchImpl, {
+      fileId: FILE,
+      sheetName: 'Daily',
+      fallbackSheetName: 'Revenue',
+      mode: 'replace',
+      columns: Array.from({ length: width }, (_, index) => `c${index}`),
+      rows: [Array.from({ length: width }, () => cell)],
+    });
+    assert.equal(written.status, 'error');
+    if (written.status === 'error') assert.match(written.message, /too large/);
+    assert.equal(calls.length, 0);
   });
 
   it('clears an existing sheet when replacing it', async () => {
@@ -221,6 +269,17 @@ describe('writeDocument', () => {
     });
     assert.equal(written.status, 'error');
     if (written.status === 'error') assert.match(written.message, /could not be filled/);
+  });
+});
+
+describe('spreadsheetValueChunks', () => {
+  it('keeps a small grid together and splits before the size limit', () => {
+    assert.equal(spreadsheetValueChunks([['a'], ['b']], 100).ok, true);
+    const split = spreadsheetValueChunks([['aa'], ['bbbb'], ['cc']], 12);
+    assert.equal(split.ok, true);
+    if (!split.ok) return;
+    assert.deepEqual(split.chunks, [[['aa']], [['bbbb']], [['cc']]]);
+    assert.equal(spreadsheetValueChunks([['x'.repeat(20)]], 10).ok, false);
   });
 });
 

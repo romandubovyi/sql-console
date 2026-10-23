@@ -630,8 +630,23 @@ td {
 }
 
 .side-sheet-footer {
+  flex-wrap: wrap;
   justify-content: flex-end;
   border-top: 1px solid var(--border);
+}
+
+.sheet-export {
+  display: flex;
+  flex: none;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.side-sheet-footer .sheet-scope {
+  width: auto;
+  max-width: 9.5rem;
+  padding: 0.35rem 0.45rem;
+  font-size: 0.8125rem;
 }
 
 @keyframes sheet-in {

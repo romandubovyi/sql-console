@@ -2,6 +2,8 @@ import { DEFAULT_PAGE_SIZE } from './paging.ts';
 import { prepareReadOnlyQuery } from './sql.ts';
 
 const QUERY_WAIT_MS = 20_000;
+const EXPORT_PAGE_SIZE = 5_000;
+export const EXPORT_ROW_LIMIT = 100_000;
 const POLL_WAIT_MS = 8_000;
 const MAX_POLLS = 2;
 
@@ -177,6 +179,53 @@ export type PageOutcome = QueryOutcome | { status: 'expired' };
 export function queryResultIsGone(status: number, message: string): boolean {
   if (status === 404) return true;
   return /not found: job|\bjob\b[^.]{0,80}\bexpired\b|\bhas expired\b/i.test(message);
+}
+
+/** Reads every row of a finished job, up to EXPORT_ROW_LIMIT. */
+export async function fetchAllResultRows(input: Omit<FetchPageInput, 'startIndex' | 'pageSize'>): Promise<QueryOutcome> {
+  const rows: string[][] = [];
+  let columns: string[] = [];
+  let totalRows: number | null = null;
+  let bytesProcessed: string | null = null;
+  let location = input.location;
+  let jobId: string | null = input.jobId;
+  let startIndex = 0;
+
+  for (let page = 0; page < EXPORT_ROW_LIMIT; page += 1) {
+    const outcome = await fetchResultPage({ ...input, startIndex, pageSize: EXPORT_PAGE_SIZE });
+    if (outcome.status === 'expired') {
+      return { status: 'error', message: 'BigQuery no longer has this result. Run the query again.' };
+    }
+    if (outcome.status !== 'ok') return outcome;
+    if (columns.length === 0) columns = outcome.table.columns;
+    totalRows = outcome.table.totalRows ?? totalRows;
+    bytesProcessed = outcome.table.bytesProcessed ?? bytesProcessed;
+    location = outcome.table.location ?? location;
+    jobId = outcome.table.jobId ?? jobId;
+    if (totalRows != null && totalRows > EXPORT_ROW_LIMIT) {
+      return {
+        status: 'error',
+        message: `This result has ${totalRows.toLocaleString('en-US')} rows. Export all stops at ${EXPORT_ROW_LIMIT.toLocaleString('en-US')} rows. Export this page, or narrow the query.`,
+      };
+    }
+    rows.push(...outcome.table.rows);
+    if (rows.length > EXPORT_ROW_LIMIT) {
+      return {
+        status: 'error',
+        message: `Export all stops at ${EXPORT_ROW_LIMIT.toLocaleString('en-US')} rows. Export this page, or narrow the query.`,
+      };
+    }
+    if (outcome.table.rows.length === 0) break;
+    startIndex += outcome.table.rows.length;
+    if (totalRows != null && startIndex >= totalRows) break;
+    if (totalRows == null && outcome.table.rows.length < EXPORT_PAGE_SIZE) break;
+  }
+
+  if (columns.length === 0) return { status: 'error', message: 'The query result has no columns to export.' };
+  return {
+    status: 'ok',
+    table: { columns, rows, totalRows, bytesProcessed, jobId, location, pageToken: null },
+  };
 }
 
 export async function fetchResultPage(input: FetchPageInput): Promise<PageOutcome> {

@@ -109,8 +109,8 @@ export async function writeSpreadsheet(
   if (input.columns.length === 0) return { status: 'error', message: 'The preview has no columns to export.' };
   const title = sheetTitle(input.sheetName, input.fallbackSheetName);
   const values = tableValues(input.columns, input.rows);
-  const size = JSON.stringify(values).length;
-  if (size > BODY_LIMIT) return { status: 'error', message: 'This page is too large to send in one request.' };
+  const split = spreadsheetValueChunks(values, BODY_LIMIT);
+  if (!split.ok) return { status: 'error', message: 'A row is too large to send in one request.' };
 
   const existing = await listSheetTitles(fetchImpl, input.fileId, signal);
   if (existing.status !== 'ok') return asFailure(existing);
@@ -140,12 +140,16 @@ export async function writeSpreadsheet(
     if (cleared.status !== 'ok') return asFailure(cleared);
   }
 
-  const written = await requestJson(
-    fetchImpl,
-    valuesUrl(input.fileId, sheetRange(title, 'A1')),
-    { method: 'PUT', signal, body: { values } },
-  );
-  if (written.status !== 'ok') return asFailure(written);
+  let rowNumber = 1;
+  for (const chunk of split.chunks) {
+    const written = await requestJson(
+      fetchImpl,
+      valuesUrl(input.fileId, sheetRange(title, `A${rowNumber}`)),
+      { method: 'PUT', signal, body: { values: chunk } },
+    );
+    if (written.status !== 'ok') return asFailure(written);
+    rowNumber += chunk.length;
+  }
   return { status: 'ok', value: { sheetName: title, rows: input.rows.length } };
 }
 
@@ -157,7 +161,10 @@ export async function writeDocument(
   if (input.columns.length === 0) return { status: 'error', message: 'The preview has no columns to export.' };
   const values = tableValues(input.columns, input.rows);
   if (values.length * input.columns.length > TABLE_CELL_LIMIT) {
-    return { status: 'error', message: 'This page has too many cells for one Docs table. Choose a smaller page.' };
+    return {
+      status: 'error',
+      message: 'A document can take 2,000 cells. Export this result to a spreadsheet.',
+    };
   }
   const loaded = await requestJson(fetchImpl, documentUrl(input.fileId), { signal });
   if (loaded.status !== 'ok') return asFailure(loaded);
@@ -249,6 +256,31 @@ export function cellWrites(starts: readonly number[], values: readonly (readonly
     requests.push({ insertText: { location: { index: at }, text } });
   }
   return requests;
+}
+
+/** Splits a sheet grid so each values request stays under the JSON size limit. */
+export function spreadsheetValueChunks(
+  values: readonly (readonly string[])[],
+  limit: number,
+): { ok: true; chunks: string[][][] } | { ok: false } {
+  const chunks: string[][][] = [];
+  let current: string[][] = [];
+  let size = 2;
+  for (const row of values) {
+    const piece = JSON.stringify(row);
+    if (piece.length + 2 > limit) return { ok: false };
+    const next = current.length === 0 ? piece.length + 2 : size + 1 + piece.length;
+    if (current.length > 0 && next > limit) {
+      chunks.push(current);
+      current = [row.slice()];
+      size = piece.length + 2;
+      continue;
+    }
+    current.push(row.slice());
+    size = next;
+  }
+  if (current.length > 0) chunks.push(current);
+  return { ok: true, chunks };
 }
 
 function tableValues(columns: readonly string[], rows: readonly (readonly string[])[]): string[][] {

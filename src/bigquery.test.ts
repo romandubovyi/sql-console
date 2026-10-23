@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { fetchResultPage, formatBytes, formatCell, interpretQueryBody, queryResultIsGone } from './bigquery.ts';
+import { EXPORT_ROW_LIMIT, fetchAllResultRows, fetchResultPage, formatBytes, formatCell, interpretQueryBody, queryResultIsGone } from './bigquery.ts';
 
 test('formats scalar, empty, and nested cells', () => {
   assert.equal(formatCell(null), '');
@@ -55,6 +55,36 @@ test('requests a later page by start index', async () => {
   assert.equal(url.searchParams.get('maxResults'), '25');
   assert.equal(url.searchParams.get('location'), 'EU');
   assert.match(url.pathname, /\/queries\/job%201$/);
+});
+
+test('reads every page of a job and stops when the result is past the export limit', async () => {
+  const pages = [
+    { totalRows: '3', schema: { fields: [{ name: 'n' }] }, rows: [{ f: [{ v: '1' }] }, { f: [{ v: '2' }] }] },
+    { totalRows: '3', schema: { fields: [{ name: 'n' }] }, rows: [{ f: [{ v: '3' }] }] },
+  ];
+  let calls = 0;
+  const outcome = await fetchAllResultRows({
+    fetchImpl: async () => new Response(JSON.stringify({ jobComplete: true, ...pages[calls++] }), { status: 200 }),
+    projectId: 'owox-marketing',
+    jobId: 'job_1',
+    location: 'US',
+  });
+  assert.equal(outcome.status, 'ok');
+  if (outcome.status !== 'ok') return;
+  assert.deepEqual(outcome.table.rows, [['1'], ['2'], ['3']]);
+  assert.equal(calls, 2);
+
+  const tooBig = await fetchAllResultRows({
+    fetchImpl: async () =>
+      new Response(JSON.stringify({ jobComplete: true, totalRows: String(EXPORT_ROW_LIMIT + 1), schema: { fields: [{ name: 'n' }] }, rows: [] }), {
+        status: 200,
+      }),
+    projectId: 'owox-marketing',
+    jobId: 'job_1',
+    location: null,
+  });
+  assert.equal(tooBig.status, 'error');
+  if (tooBig.status === 'error') assert.match(tooBig.message, /100,000 rows/);
 });
 
 test('treats a missing query job as expired', async () => {

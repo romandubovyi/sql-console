@@ -1,6 +1,7 @@
 import { ExternalLink, FileSpreadsheet, RefreshCw, X } from 'lucide-react';
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
+import { fetchAllResultRows } from './bigquery.ts';
 import { loadJobUserEmail, loadServiceAccountEmail, type CredentialJob } from './credential.ts';
 import {
   googleFileUrl,
@@ -59,6 +60,7 @@ export function ExportPanel({
   const [fileId, setFileId] = useState(target?.fileId ?? '');
   const [sheetName, setSheetName] = useState(target?.sheetName ?? '');
   const [wantsNew, setWantsNew] = useState(false);
+  const [scope, setScope] = useState<'page' | 'all'>('page');
   const [link, setLink] = useState('');
   const [linkChecked, setLinkChecked] = useState(false);
   const [reload, setReload] = useState(0);
@@ -188,7 +190,9 @@ export function ExportPanel({
       (creating ? !newNameTaken : sheetName !== '' && (titleLoad === null || titleLoad.includes(sheetName))));
   const visible = files.filter(file => file.kind === kind);
   const known = visible.some(file => file.id === fileId);
-  const canExport = Boolean(fetchImpl) && fileId !== '' && columns.length > 0 && !busy && !exporting && sheetReady;
+  const exportingAll = scope === 'all' && Boolean(job);
+  const canExport =
+    Boolean(fetchImpl) && fileId !== '' && columns.length > 0 && !busy && !exporting && sheetReady && (scope === 'page' || Boolean(job));
 
   function closeSheet() {
     if (!exporting) setOpen(false);
@@ -219,40 +223,73 @@ export function ExportPanel({
     if (!fetchImpl || !canExport) return;
     setExporting(true);
     setMessage(null);
-    if (kind === 'doc') {
-      const result = await writeDocument(
+    try {
+      let columnsToWrite = columns;
+      let rowsToWrite = rows;
+      if (exportingAll) {
+        if (!job) return;
+        setMessage({ tone: 'ok', text: 'Reading all rows…' });
+        const outcome = await fetchAllResultRows({
+          fetchImpl,
+          projectId: job.projectId,
+          jobId: job.jobId,
+          location: job.location,
+          signal,
+        });
+        if (outcome.status !== 'ok') {
+          reportExport({ status: 'error', message: outcome.message });
+          return;
+        }
+        columnsToWrite = outcome.table.columns;
+        rowsToWrite = outcome.table.rows;
+        setMessage({ tone: 'ok', text: 'Writing all rows…' });
+      }
+      if (kind === 'doc') {
+        const result = await writeDocument(
+          fetchImpl,
+          { fileId, title: queryTitle.trim() || 'Results', columns: columnsToWrite, rows: rowsToWrite },
+          signal,
+        );
+        reportExport(result.status === 'ok' ? { status: 'ok', text: `Appended ${rowCount(result.value.rows)} to the document.` } : result);
+        return;
+      }
+      const creatingSheet = creating;
+      const result = await writeSpreadsheet(
         fetchImpl,
-        { fileId, title: queryTitle.trim() || 'Results', columns, rows },
+        {
+          fileId,
+          sheetName,
+          fallbackSheetName: queryTitle,
+          mode: creatingSheet ? 'create' : 'replace',
+          columns: columnsToWrite,
+          rows: rowsToWrite,
+        },
         signal,
       );
+      if (result.status === 'ok') {
+        const writtenName = result.value.sheetName;
+        setWantsNew(false);
+        setTitleState(current => {
+          const titles = current?.fileId === fileId && current.titles ? current.titles : [];
+          return { fileId, titles: titles.includes(writtenName) ? titles : [...titles, writtenName] };
+        });
+        if (sheetName !== writtenName) publish('sheet', fileId, writtenName);
+        reportExport({
+          status: 'ok',
+          text: creatingSheet
+            ? `Created “${writtenName}” and wrote ${rowCount(result.value.rows)}.`
+            : `Wrote ${rowCount(result.value.rows)} to “${writtenName}”.`,
+        });
+        return;
+      }
+      reportExport(result);
+    } catch (cause) {
+      if (signal.aborted) return;
+      const message = cause instanceof Error && cause.message ? cause.message : 'The export failed.';
+      reportExport({ status: 'error', message });
+    } finally {
       setExporting(false);
-      reportExport(result.status === 'ok' ? { status: 'ok', text: `Appended ${rowCount(result.value.rows)} to the document.` } : result);
-      return;
     }
-    const creatingSheet = creating;
-    const result = await writeSpreadsheet(
-      fetchImpl,
-      { fileId, sheetName, fallbackSheetName: queryTitle, mode: creatingSheet ? 'create' : 'replace', columns, rows },
-      signal,
-    );
-    setExporting(false);
-    if (result.status === 'ok') {
-      const writtenName = result.value.sheetName;
-      setWantsNew(false);
-      setTitleState(current => {
-        const titles = current?.fileId === fileId && current.titles ? current.titles : [];
-        return { fileId, titles: titles.includes(writtenName) ? titles : [...titles, writtenName] };
-      });
-      if (sheetName !== writtenName) publish('sheet', fileId, writtenName);
-      reportExport({
-        status: 'ok',
-        text: creatingSheet
-          ? `Created “${writtenName}” and wrote ${rowCount(result.value.rows)}.`
-          : `Wrote ${rowCount(result.value.rows)} to “${writtenName}”.`,
-      });
-      return;
-    }
-    reportExport(result);
   }
 
   const sheet =
@@ -271,15 +308,15 @@ export function ExportPanel({
               tabIndex={-1}
             >
               <header className="side-sheet-header">
-                <h2 id="export-sheet-title">Export this page</h2>
+                <h2 id="export-sheet-title">Export</h2>
                 <button className="icon-button" type="button" aria-label="Close export" disabled={exporting} onClick={closeSheet}>
                   <X size={16} aria-hidden="true" />
                 </button>
               </header>
               <div className="side-sheet-body">
                 <p className="sheet-lead">
-                  The rows on this page go to a Google Sheet or Doc saved on this query. The plugin cannot share a file.
-                  A service account only opens a file someone has already shared with it.
+                  Send this page, or every row from the current job, to a Google Sheet or Doc saved on this query. The
+                  plugin cannot share a file. A service account only opens a file someone has already shared with it.
                 </p>
                 <div className="editor-mode" role="group" aria-label="Export destination">
                   <button type="button" aria-pressed={kind === 'sheet'} onClick={() => chooseKind('sheet')}>
@@ -401,7 +438,10 @@ export function ExportPanel({
                   )}
                   <p>Enable the Sheets, Docs, and Drive APIs on the GCP project that owns the key.</p>
                 </div>
-                {columns.length === 0 ? <p className="history-note">Run the query. Export sends the rows on this page.</p> : null}
+                {exportingAll ? (
+                  <p className="history-note">All rows reads the current job. A document can take 2,000 cells.</p>
+                ) : null}
+                {columns.length === 0 ? <p className="history-note">Run the query before exporting.</p> : null}
                 {message ? (
                   <p className={message.tone === 'error' ? 'banner' : 'history-note'} role={message.tone === 'error' ? 'alert' : 'status'}>
                     {message.text}
@@ -424,9 +464,24 @@ export function ExportPanel({
                   <ExternalLink size={14} aria-hidden="true" />
                   Open
                 </button>
-                <button className="primary" type="button" disabled={!canExport} onClick={() => void runExport()}>
-                  {exporting ? 'Exporting…' : 'Export'}
-                </button>
+                <div className="sheet-export">
+                  <select
+                    className="sheet-scope"
+                    aria-label="Rows to export"
+                    title={job ? 'Choose this page or all rows from the current job' : 'All rows is available after a query runs'}
+                    value={scope}
+                    disabled={exporting}
+                    onChange={event => setScope(event.target.value === 'all' ? 'all' : 'page')}
+                  >
+                    <option value="page">This page</option>
+                    <option value="all" disabled={!job}>
+                      All rows
+                    </option>
+                  </select>
+                  <button className="primary" type="button" disabled={!canExport} onClick={() => void runExport()}>
+                    {exporting ? 'Exporting…' : 'Export'}
+                  </button>
+                </div>
               </footer>
             </aside>
           </div>,
@@ -441,11 +496,11 @@ export function ExportPanel({
         type="button"
         aria-expanded={open}
         aria-controls="export-results"
-        title="Export the rows on this page to a Google Sheet or Doc"
+        title="Export rows to a Google Sheet or Doc"
         onClick={() => setOpen(current => !current)}
       >
         <FileSpreadsheet size={12} aria-hidden="true" />
-        Export this page
+        Export
       </button>
       {sheet}
     </>
