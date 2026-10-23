@@ -1,6 +1,6 @@
 {
   "name": "SQL-Console",
-  "description": "Run a read-only BigQuery query with the plugin Credential, keep saved queries, export to a Google Sheet or Doc, and replace a spreadsheet on a schedule.",
+  "description": "Query BigQuery in OWOX, save the SQL, and refresh a Google Sheet on a schedule. Preview the rows, compare versions, export a Sheet or Doc, or turn the query into a SQL data mart. The scheduled run replaces the sheet even when SQL-Console is closed.",
   "collections": [
     {
       "name": "queries",

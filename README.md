@@ -1,39 +1,47 @@
 # SQL-Console
 
-Read-only BigQuery preview inside OWOX Data Marts.
+Query BigQuery without leaving OWOX. Save the SQL, look at the rows, and put them where the team already reads them: a Google Sheet, a Doc, or a SQL data mart. A daily or weekly run can replace that sheet even when SQL-Console is closed.
 
-Write one `SELECT` or `WITH` query, save it, and page through the rows. Saved queries stay in your member collection for this project. Each save keeps the SQL. Versions compares that save with the previous one, and Base and Compare can pick any pair. The diff shows line numbers on both sides. SQL and Description are two editor modes. A description is Markdown of up to 2,500 characters. Create data mart asks for a BigQuery storage, then creates a SQL data mart with the current query and opens it. The plugin opens an empty `Untitled query` even when older queries are saved.
+![Write, run, keep, send, and repeat a BigQuery query](docs/flow.svg)
 
-Suggestions use the BigQuery tables, views, and connector tables behind data marts you can open. After `FROM` or `JOIN`, the list offers `project.dataset.table`. After `SELECT`, and in `WHERE`, `ON`, and `GROUP BY`, it offers fields from the tables already named in the query. Those fields come from the schema saved on the data mart. A calculated field is omitted, because it is not a column of the warehouse table.
+## Why it is useful
 
-Focus Project or Location and pick a BigQuery storage. The list names the storage and shows the GCP project and location that will be filled in. You can still type either value. The Credential does not include the project id. Leave location empty to let BigQuery choose.
+- **The warehouse stays read-only.** A query is one `SELECT` or `WITH`. The credential can run jobs and read tables. It cannot change BigQuery data.
+- **The SQL stays with the work.** Each save keeps the statement. Compare any two versions side by side, and leave a Markdown note of up to 2,500 characters beside the query.
+- **You start from data marts you can already open.** After `FROM` or `JOIN`, suggestions offer `project.dataset.table` for tables, views, and connector tables. Fields from those tables appear in `SELECT`, `WHERE`, `ON`, and `GROUP BY`.
+- **A good query can become a data mart.** Create a SQL data mart on a BigQuery storage and open it, without retyping the statement.
+- **The sheet can refresh itself.** Save the query, export once so the tab exists, then pick a day and a time. The run uses that saved SQL and the GCP project and location from the moment you saved the schedule.
 
-A finished run keeps the BigQuery job on the query. Opening that query reads the same result again for about 24 hours and shows the time of the run. Clear cache forgets the job. After BigQuery drops the result, the time stays and the query can be run again.
+## What you can do
 
-The query runs with the Google Service Account Credential you grant when installing the plugin. One installation uses one Credential. OWOX keeps that key and attaches a token for the plugin scopes to requests to `*.googleapis.com`. A Storage's own saved key is not used. The editor foot names that Credential, and shows the service account email when Google or the BigQuery job reports it.
+| | |
+| --- | --- |
+| Preview | Page through the result. The last run opens again for about 24 hours. Clear cache forgets the job and does not delete a BigQuery table. |
+| Download | CSV of the current preview page. A later page is a separate file. |
+| Export | This page, or up to 100,000 rows from the current job, into a Google Sheet. A Doc can take 2,000 cells, appended as a new heading and table. Several queries can share one spreadsheet, each with its own tab. |
+| Schedule | Daily or weekly replacement of that sheet tab. Pause, resume, and delete also live under Plugins → Schedules. |
+| Project | Pick a BigQuery storage to fill the GCP project and location, or type them. Leave location empty and BigQuery chooses. |
 
-Download CSV saves the rows on the current preview page. A later page is a separate file.
+## Before the first export
 
-Export opens a side sheet. This page sends the preview page. All rows reads the current BigQuery job and can send up to 100,000 rows to a spreadsheet. A document can take 2,000 cells. Several queries can share one spreadsheet. Choose an existing sheet to replace its rows, or choose Create a new sheet to add a tab and leave the others unchanged. A blank new-sheet name uses the query title. A document gets a new heading and table at the end, and earlier text stays.
+The plugin uses the Google Service Account Credential you select at install. OWOX keeps the key. A storage's own key is not used.
 
-A spreadsheet target can also run on a schedule. Save the query first, export once so the sheet tab exists, then choose a daily or weekly time. OWOX starts that run even when SQL-Console is closed. The run uses the saved SQL and the GCP project and location from the moment the schedule was saved, then replaces that sheet. It stops above 100,000 rows. A document stays manual. Pause, resume, and delete are also under Plugins → Schedules. The schedule runs on a Cloudflare Worker. The page stays on GitHub Pages. Installing the plugin says that this code runs with the installing member's access while the plugin is closed.
+1. Grant that account **BigQuery Job User** on the GCP project and **BigQuery Data Viewer** on the tables.
+2. Enable the BigQuery, Sheets, Docs, and Drive APIs on the project that owns the key.
+3. Open the Sheet or Doc, choose Share, and add the service account as Editor. SQL-Console lists files that account can already open. It cannot share a file for you.
 
-The Credential also requests Sheets, Docs, and read-only Drive file metadata. After this update, select the Credential again. Enable the Google Sheets API, Google Docs API, and Google Drive API on the GCP project that owns the key.
+A Storage that signs in with Google OAuth still needs this separate service account.
 
-The plugin cannot share a file. Open the Sheet or Doc, choose Share, and add the service account address as Editor. The list shows files that account can already open. Pasting a link uses the same access.
+## Install
 
-The service account needs **BigQuery Job User** on the GCP project and **BigQuery Data Viewer** on the tables. A Storage that signs in with Google OAuth needs a separate service account Credential.
-
-## Install on app.owox.com
-
-1. Create a **Google Service Account** Credential in the test project and paste the JSON key.
+1. Create a **Google Service Account** Credential and paste the JSON key.
 2. Open **Plugins → Publish Plugin**.
-3. Enter `romandubovyi/sql-console`, choose **Only me**, then **Publish & Install**.
+3. Enter `romandubovyi/sql-console`, choose who can see it, then **Publish & Install**.
 4. Select that Credential when the install dialog asks for it.
 
-The GitHub repository is private. The Pages site that serves the plugin is public, which GitHub Pages requires.
+Installing tells you that scheduled runs use the installing member's access, including while the plugin is closed. The page is on GitHub Pages. The schedule action runs on a Cloudflare Worker.
 
-## Checks
+## Develop
 
 ```bash
 npm install
