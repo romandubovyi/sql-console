@@ -31,8 +31,10 @@ import {
   appendVersion,
   compareWithPrevious,
   emptyQuery,
+  formatVersionTime,
   initialVersionPick,
   landingQuery,
+  lastRunExpiredMessage,
   MAX_DESCRIPTION,
   listAllQueries,
   normalizePreferences,
@@ -128,6 +130,9 @@ function Console({ ctx }: { ctx: PluginContext }) {
   const queriesRef = useRef<QueryItem[]>([]);
   const writeRef = useRef(Promise.resolve());
   const savedPreferences = useRef({ projectId: '', location: '' });
+  const shownRun = useRef(0);
+  const sessionRef = useRef<ResultSession | null>(null);
+  const pageSizeRef = useRef<PageSize>(DEFAULT_PAGE_SIZE);
   const [narrow, setNarrow] = useState(() => window.matchMedia('(max-width: 760px)').matches);
   const [sidebarSize, setSidebarSize] = useState(260);
   const [editorSize, setEditorSize] = useState(320);
@@ -158,6 +163,7 @@ function Console({ ctx }: { ctx: PluginContext }) {
   const [preferencesReady, setPreferencesReady] = useState(false);
   const [pageSize, setPageSize] = useState<PageSize>(DEFAULT_PAGE_SIZE);
   const [running, setRunning] = useState(false);
+  const [restoring, setRestoring] = useState(false);
   const [paging, setPaging] = useState(false);
   const [saving, setSaving] = useState(false);
   const [creatingMart, setCreatingMart] = useState(false);
@@ -180,6 +186,8 @@ function Console({ ctx }: { ctx: PluginContext }) {
   }
 
   function showQuery(item: QueryItem) {
+    shownRun.current += 1;
+    setRestoring(false);
     setSelectedId(item.id);
     setTitle(item.title);
     setSql(item.sql);
@@ -229,6 +237,7 @@ function Console({ ctx }: { ctx: PluginContext }) {
         setTitle(landing.title);
         setSql(landing.sql);
         setDescription(landing.description);
+        setExportTarget(landing.exportTarget);
         setEditorMode('sql');
         setQueryState('ready');
       } catch (cause) {
@@ -314,7 +323,7 @@ function Console({ ctx }: { ctx: PluginContext }) {
     async (draft: Draft) => {
       const current = queriesRef.current.find(query => query.id === draft.id);
       if (!current) return;
-      const next = storedQuery(draft, current.versions);
+      const next = storedQuery({ ...draft, lastRun: current.lastRun }, current.versions);
       if (
         current.title === next.title &&
         current.sql === next.sql &&
@@ -350,7 +359,10 @@ function Console({ ctx }: { ctx: PluginContext }) {
         if (!current) return;
         const saved = await ctx.collections<QueryDocument>(QUERIES_COLLECTION).put(
           draft.id,
-          storedQuery(draft, appendVersion(current.versions, draft.sql, new Date().toISOString())),
+          storedQuery(
+            { ...draft, lastRun: current.lastRun },
+            appendVersion(current.versions, draft.sql, new Date().toISOString()),
+          ),
         );
         const item = toQueryItem(saved);
         replaceQuery(item);
@@ -456,6 +468,71 @@ function Console({ ctx }: { ctx: PluginContext }) {
   const runDisabled = running || paging || !trimmedProject || sql.trim().length === 0 || queryState !== 'ready';
   const saveDisabled = saving || !selected || !queryIsDirty(selected, title, sql, description, exportTarget);
 
+  async function rememberRun(input: {
+    id: string;
+    jobId: string;
+    projectId: string;
+    location: string;
+    sql: string;
+  }) {
+    await enqueue(async () => {
+      const current = queriesRef.current.find(query => query.id === input.id);
+      if (!current) return;
+      const saved = await ctx.collections<QueryDocument>(QUERIES_COLLECTION).put(
+        input.id,
+        storedQuery(
+          {
+            title: current.title,
+            sql: current.sql,
+            description: current.description,
+            exportTarget: current.exportTarget,
+            lastRun: {
+              jobId: input.jobId,
+              projectId: input.projectId,
+              location: input.location,
+              ranAt: new Date().toISOString(),
+              sql: input.sql,
+            },
+          },
+          current.versions,
+        ),
+      );
+      replaceQuery(toQueryItem(saved));
+    });
+  }
+
+  async function clearCache() {
+    const queryId = selectedId;
+    if (!queryId || running || paging || restoring) return;
+    const token = ++shownRun.current;
+    setRestoring(false);
+    try {
+      await enqueue(async () => {
+        const current = queriesRef.current.find(query => query.id === queryId);
+        if (!current?.lastRun) return;
+        const saved = await ctx.collections<QueryDocument>(QUERIES_COLLECTION).put(
+          queryId,
+          storedQuery(
+            {
+              title: current.title,
+              sql: current.sql,
+              description: current.description,
+              exportTarget: current.exportTarget,
+              lastRun: null,
+            },
+            current.versions,
+          ),
+        );
+        replaceQuery(toQueryItem(saved));
+      });
+      if (shownRun.current !== token) return;
+      setSession(null);
+      setNotice(null);
+    } catch (cause) {
+      if (shownRun.current === token) setNotice({ message: describeError(cause) });
+    }
+  }
+
   async function onRun() {
     if (runDisabled) return;
     const fetchImpl = credentialFetch(ctx);
@@ -468,26 +545,43 @@ function Console({ ctx }: { ctx: PluginContext }) {
       return;
     }
 
+    const token = ++shownRun.current;
+    const queryId = selectedId;
+    const ranSql = sql;
+    const ranProject = trimmedProject;
+    const ranLocation = location.trim();
+    setRestoring(false);
     setRunning(true);
     setNotice(null);
     setSession(null);
     try {
       const outcome = await runBigQueryPreview({
         fetchImpl,
-        projectId: trimmedProject,
-        location: location.trim() || null,
-        sql,
+        projectId: ranProject,
+        location: ranLocation || null,
+        sql: ranSql,
         pageSize,
         signal: ctx.signal,
       });
-      applyOutcome(outcome, {
-        projectId: trimmedProject,
-        location: location.trim() || null,
-        pageIndex: 0,
-        pageSize,
-      });
+      if (shownRun.current === token) {
+        applyOutcome(outcome, {
+          projectId: ranProject,
+          location: ranLocation || null,
+          pageIndex: 0,
+          pageSize,
+        });
+      }
+      if (outcome.status === 'ok' && outcome.table.jobId) {
+        await rememberRun({
+          id: queryId,
+          jobId: outcome.table.jobId,
+          projectId: ranProject,
+          location: outcome.table.location ?? ranLocation,
+          sql: ranSql,
+        });
+      }
     } catch (cause) {
-      setNotice({ message: describeError(cause) });
+      if (shownRun.current === token) setNotice({ message: describeError(cause) });
     } finally {
       setRunning(false);
     }
@@ -518,7 +612,7 @@ function Console({ ctx }: { ctx: PluginContext }) {
 
   async function showPage(nextIndex: number, nextSize: PageSize) {
     const jobId = session?.jobId;
-    if (!session || !jobId || running || paging) return;
+    if (!session || !jobId || running || paging || restoring) return;
     const fetchImpl = credentialFetch(ctx);
     if (!fetchImpl) return;
     const current = session;
@@ -534,6 +628,16 @@ function Console({ ctx }: { ctx: PluginContext }) {
         pageSize: nextSize,
         signal: ctx.signal,
       });
+      if (outcome.status === 'expired') {
+        setSession(null);
+        const ranAt = queriesRef.current.find(query => query.id === selectedId)?.lastRun?.ranAt;
+        setNotice({
+          message: ranAt
+            ? lastRunExpiredMessage(ranAt)
+            : 'BigQuery no longer has this result. Run the query again.',
+        });
+        return;
+      }
       if (outcome.status !== 'ok') {
         setNotice({ message: outcome.message });
         return;
@@ -562,11 +666,87 @@ function Console({ ctx }: { ctx: PluginContext }) {
     }
   }
 
+  useEffect(() => {
+    pageSizeRef.current = pageSize;
+  }, [pageSize]);
+
+  useEffect(() => {
+    sessionRef.current = session;
+  }, [session]);
+
+  useEffect(() => {
+    if (queryState !== 'ready' || !selectedId) return;
+    const saved = queriesRef.current.find(query => query.id === selectedId)?.lastRun ?? null;
+    const visible = sessionRef.current;
+    if (!saved) return;
+    if (visible?.jobId === saved.jobId && visible.projectId === saved.projectId) return;
+
+    const token = ++shownRun.current;
+    let cancelled = false;
+    void (async () => {
+      await Promise.resolve();
+      if (cancelled || shownRun.current !== token) return;
+      const fetchImpl = credentialFetch(ctx);
+      if (!fetchImpl) {
+        setNotice({
+          message: `Last run ${formatVersionTime(saved.ranAt)}. Google Service Account access is not granted. Select the Credential again for SQL-Console.`,
+        });
+        return;
+      }
+      setRestoring(true);
+      setNotice(null);
+      setSession(null);
+      try {
+        const outcome = await fetchResultPage({
+          fetchImpl,
+          projectId: saved.projectId,
+          jobId: saved.jobId,
+          location: saved.location || null,
+          startIndex: 0,
+          pageSize: pageSizeRef.current,
+          signal: ctx.signal,
+        });
+        if (cancelled || shownRun.current !== token) return;
+        if (outcome.status === 'ok') {
+          const table = outcome.table;
+          setSession({
+            columns: table.columns,
+            rows: table.rows,
+            totalRows: table.totalRows,
+            bytesProcessed: table.bytesProcessed,
+            jobId: table.jobId ?? saved.jobId,
+            location: table.location ?? (saved.location || null),
+            projectId: saved.projectId,
+            pageIndex: 0,
+            pageSize: pageSizeRef.current,
+          });
+          return;
+        }
+        setSession(null);
+        setNotice({
+          message: outcome.status === 'expired' ? lastRunExpiredMessage(saved.ranAt) : outcome.message,
+        });
+      } catch (cause) {
+        if (cancelled || shownRun.current !== token) return;
+        setNotice({ message: describeError(cause) });
+      } finally {
+        if (!cancelled && shownRun.current === token) setRestoring(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [ctx, queryState, selected?.lastRun?.jobId, selected?.lastRun?.ranAt, selectedId]);
+
   const pages = session ? pageCount(session.totalRows, session.pageSize) : null;
+  const savedRun = selected?.lastRun ?? null;
+  const sqlChanged = Boolean(savedRun && session && savedRun.sql.trim() !== sql.trim());
   const nextEnabled = Boolean(
     session?.jobId &&
       !running &&
       !paging &&
+      !restoring &&
       canGoNext(session.pageIndex, session.pageSize, session.totalRows, session.rows.length),
   );
   const bytes = formatBytes(session?.bytesProcessed ?? null);
@@ -759,7 +939,7 @@ function Console({ ctx }: { ctx: PluginContext }) {
         />
 
         <section
-          className={paging ? 'preview-pane is-paging' : 'preview-pane'}
+          className={paging || restoring ? 'preview-pane is-paging' : 'preview-pane'}
           aria-label="Query preview"
           aria-live="polite"
         >
@@ -816,7 +996,16 @@ function Console({ ctx }: { ctx: PluginContext }) {
             <button
               className="ghost preview-action"
               type="button"
-              disabled={!session || session.columns.length === 0 || running || paging}
+              disabled={!savedRun || running || paging || restoring}
+              title="Forget the saved BigQuery job for this query"
+              onClick={() => void clearCache()}
+            >
+              Clear cache
+            </button>
+            <button
+              className="ghost preview-action"
+              type="button"
+              disabled={!session || session.columns.length === 0 || running || paging || restoring}
               title="Download the rows on this page as CSV"
               onClick={() => {
                 if (!session || session.columns.length === 0) return;
@@ -851,13 +1040,21 @@ function Console({ ctx }: { ctx: PluginContext }) {
               sheetRoot={shellRef}
             />
             <span className="preview-meta">
-              {session
-                ? [formatRowRange(session.pageIndex, session.pageSize, session.rows.length, session.totalRows), bytes ? `${bytes} processed` : null]
-                    .filter(Boolean)
-                    .join(' · ')
-                : running
-                  ? 'Running the query…'
-                  : 'Results appear here'}
+              {restoring
+                ? 'Loading the last run…'
+                : session
+                  ? [
+                      savedRun ? `Last run ${formatVersionTime(savedRun.ranAt)}` : null,
+                      formatRowRange(session.pageIndex, session.pageSize, session.rows.length, session.totalRows),
+                      bytes ? `${bytes} processed` : null,
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')
+                  : running
+                    ? 'Running the query…'
+                    : savedRun
+                      ? `Last run ${formatVersionTime(savedRun.ranAt)}`
+                      : 'Results appear here'}
             </span>
           </div>
           <div className="preview-body">
@@ -871,6 +1068,9 @@ function Console({ ctx }: { ctx: PluginContext }) {
                 Choose a BigQuery storage from Project or Location, or type the GCP project id. Jobs run in that
                 project.
               </p>
+            ) : null}
+            {sqlChanged ? (
+              <p className="empty-note">These rows are from the last run. The SQL has changed since then.</p>
             ) : null}
             {session && session.columns.length === 0 ? <p className="empty-note">Query finished and returned no columns.</p> : null}
             {session && session.columns.length > 0 ? (

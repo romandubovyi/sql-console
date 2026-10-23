@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { fetchResultPage, formatBytes, formatCell, interpretQueryBody } from './bigquery.ts';
+import { fetchResultPage, formatBytes, formatCell, interpretQueryBody, queryResultIsGone } from './bigquery.ts';
 
 test('formats scalar, empty, and nested cells', () => {
   assert.equal(formatCell(null), '');
@@ -55,6 +55,21 @@ test('requests a later page by start index', async () => {
   assert.equal(url.searchParams.get('maxResults'), '25');
   assert.equal(url.searchParams.get('location'), 'EU');
   assert.match(url.pathname, /\/queries\/job%201$/);
+});
+
+test('treats a missing query job as expired', async () => {
+  assert.equal(queryResultIsGone(404, 'Not found: Job owox:US.job_1'), true);
+  assert.equal(queryResultIsGone(400, 'Syntax error'), false);
+  const outcome = await fetchResultPage({
+    fetchImpl: async () =>
+      new Response(JSON.stringify({ error: { message: 'Not found: Job owox:US.job_1' } }), { status: 404 }),
+    projectId: 'owox-marketing',
+    jobId: 'job_1',
+    location: 'US',
+    startIndex: 0,
+    pageSize: 100,
+  });
+  assert.deepEqual(outcome, { status: 'expired' });
 });
 
 test('reports a BigQuery error and a still-running job', () => {

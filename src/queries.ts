@@ -12,12 +12,23 @@ export interface QueryVersion {
   savedAt: string;
 }
 
+/** BigQuery keeps this job's rows for about 24 hours. */
+export interface LastRun {
+  jobId: string;
+  projectId: string;
+  /** Empty when the job did not report a location. */
+  location: string;
+  ranAt: string;
+  sql: string;
+}
+
 export interface QueryDocument {
   title: string;
   sql: string;
   description: string;
   versions: QueryVersion[];
   exportTarget: ExportTarget | null;
+  lastRun: LastRun | null;
 }
 
 export interface QueryItem {
@@ -27,6 +38,7 @@ export interface QueryItem {
   description: string;
   versions: QueryVersion[];
   exportTarget: ExportTarget | null;
+  lastRun: LastRun | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -37,11 +49,11 @@ export interface PreferencesDocument {
 }
 
 export function emptyQuery(): QueryDocument {
-  return { title: UNTITLED_QUERY, sql: '', description: '', versions: [], exportTarget: null };
+  return { title: UNTITLED_QUERY, sql: '', description: '', versions: [], exportTarget: null, lastRun: null };
 }
 
 export function storedQuery(
-  input: Pick<QueryDocument, 'title' | 'sql' | 'description' | 'exportTarget'>,
+  input: Pick<QueryDocument, 'title' | 'sql' | 'description' | 'exportTarget' | 'lastRun'>,
   versions: QueryVersion[],
 ): QueryDocument {
   return {
@@ -50,6 +62,7 @@ export function storedQuery(
     description: limitDescription(input.description),
     versions,
     exportTarget: normalizeExportTarget(input.exportTarget),
+    lastRun: normalizeLastRun(input.lastRun),
   };
 }
 
@@ -124,7 +137,34 @@ export function normalizeQuery(document: unknown): QueryDocument {
         return [{ sql: item.sql, savedAt: item.savedAt }];
       }).slice(0, MAX_VERSIONS)
     : [];
-  return { title, sql, description, versions, exportTarget: normalizeExportTarget(record?.exportTarget) };
+  return {
+    title,
+    sql,
+    description,
+    versions,
+    exportTarget: normalizeExportTarget(record?.exportTarget),
+    lastRun: normalizeLastRun(record?.lastRun),
+  };
+}
+
+export function normalizeLastRun(value: unknown): LastRun | null {
+  const record = asRecord(value);
+  if (!record) return null;
+  const jobId = cleanToken(record.jobId, 1024);
+  const projectId = cleanToken(record.projectId, 200);
+  const location = typeof record.location === 'string' ? record.location.trim() : '';
+  const ranAt = typeof record.ranAt === 'string' ? record.ranAt : '';
+  const sql = typeof record.sql === 'string' ? record.sql : '';
+  if (!jobId || !projectId || Number.isNaN(Date.parse(ranAt))) return null;
+  if (location && !cleanToken(location, 64)) return null;
+  return { jobId, projectId, location, ranAt, sql };
+}
+
+function cleanToken(value: unknown, max: number): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.length > max || /[\s/\\]/.test(trimmed)) return null;
+  return trimmed;
 }
 
 export function normalizePreferences(document: unknown): PreferencesDocument {
@@ -144,6 +184,7 @@ export function toQueryItem(stored: PluginCollectionDocument<unknown>): QueryIte
     description: document.description,
     versions: document.versions,
     exportTarget: document.exportTarget,
+    lastRun: document.lastRun,
     createdAt: stored.createdAt,
     updatedAt: stored.updatedAt,
   };
@@ -172,6 +213,10 @@ export function formatVersionTime(savedAt: string): string {
     hour: '2-digit',
     minute: '2-digit',
   }).format(date);
+}
+
+export function lastRunExpiredMessage(ranAt: string): string {
+  return `Last run ${formatVersionTime(ranAt)}. BigQuery no longer has this result. Run the query again.`;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {

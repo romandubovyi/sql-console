@@ -171,7 +171,15 @@ export async function runBigQueryPreview(input: RunPreviewInput): Promise<QueryO
   return { status: 'incomplete', message: 'Query did not finish in time.' };
 }
 
-export async function fetchResultPage(input: FetchPageInput): Promise<QueryOutcome> {
+export type PageOutcome = QueryOutcome | { status: 'expired' };
+
+/** A missing or expired query job. Anonymous results usually last about 24 hours. */
+export function queryResultIsGone(status: number, message: string): boolean {
+  if (status === 404) return true;
+  return /not found: job|\bjob\b[^.]{0,80}\bexpired\b|\bhas expired\b/i.test(message);
+}
+
+export async function fetchResultPage(input: FetchPageInput): Promise<PageOutcome> {
   const url = new URL(
     `https://bigquery.googleapis.com/bigquery/v2/projects/${encodeURIComponent(input.projectId)}/queries/${encodeURIComponent(input.jobId)}`,
   );
@@ -186,7 +194,9 @@ export async function fetchResultPage(input: FetchPageInput): Promise<QueryOutco
   });
   const body = await readBody(response);
   if (!response.ok) {
-    return { status: 'error', message: errorText(asRecord(body)) ?? `BigQuery answered ${response.status}` };
+    const message = errorText(asRecord(body)) ?? `BigQuery answered ${response.status}`;
+    if (queryResultIsGone(response.status, message)) return { status: 'expired' };
+    return { status: 'error', message };
   }
   const outcome = interpretQueryBody(body);
   if (outcome.status === 'pending') {

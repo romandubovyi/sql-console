@@ -8,6 +8,8 @@ Suggestions use the BigQuery tables, views, and connector tables behind data mar
 
 Focus Project or Location and pick a BigQuery storage. The list names the storage and shows the GCP project and location that will be filled in. You can still type either value. The Credential does not include the project id. Leave location empty to let BigQuery choose.
 
+A finished run keeps the BigQuery job on the query. Opening that query reads the same result again for about 24 hours and shows the time of the run. Clear cache forgets the job. After BigQuery drops the result, the time stays and the query can be run again.
+
 The query runs with the Google Service Account Credential you grant when installing the plugin. One installation uses one Credential. OWOX keeps that key and attaches a token for the plugin scopes to requests to `*.googleapis.com`. A Storage's own saved key is not used. The editor foot names that Credential, and shows the service account email when Google or the BigQuery job reports it.
 
 Download CSV saves the rows on the current preview page. A later page is a separate file.

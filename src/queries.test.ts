@@ -9,6 +9,8 @@ import {
   listAllQueries,
   MAX_DESCRIPTION,
   MAX_VERSIONS,
+  lastRunExpiredMessage,
+  normalizeLastRun,
   normalizeQuery,
   queryIsDirty,
   UNTITLED_QUERY,
@@ -110,6 +112,29 @@ describe('description', () => {
     });
     assert.equal(normalizeQuery({ exportTarget: { kind: 'doc', fileId: 'short' } }).exportTarget, null);
     assert.equal(normalizeQuery({ title: 'Revenue' }).exportTarget, null);
+    assert.equal(normalizeQuery({ title: 'Revenue' }).lastRun, null);
+  });
+});
+
+describe('normalizeLastRun', () => {
+  const run = {
+    jobId: 'job_1',
+    projectId: 'owox-marketing',
+    location: 'EU',
+    ranAt: '2026-10-23T12:00:00.000Z',
+    sql: 'SELECT 1',
+  };
+
+  it('keeps a job reference and drops a broken one', () => {
+    assert.deepEqual(normalizeLastRun(run), run);
+    assert.deepEqual(normalizeLastRun({ ...run, location: '' }), { ...run, location: '' });
+    assert.equal(normalizeLastRun({ ...run, jobId: 'job 1' }), null);
+    assert.equal(normalizeLastRun({ ...run, ranAt: 'yesterday' }), null);
+    assert.equal(normalizeQuery({ lastRun: run }).lastRun?.jobId, 'job_1');
+  });
+
+  it('names the time in the expired-result message', () => {
+    assert.match(lastRunExpiredMessage(run.ranAt), /Last run .+BigQuery no longer has this result/);
   });
 });
 
