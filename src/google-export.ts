@@ -23,6 +23,8 @@ export interface SheetWriteInput {
   fileId: string;
   sheetName: string;
   fallbackSheetName: string;
+  /** `replace` clears an existing sheet. `create` adds a sheet and leaves the others unchanged. */
+  mode: 'replace' | 'create';
   columns: readonly string[];
   rows: readonly (readonly string[])[];
 }
@@ -112,22 +114,31 @@ export async function writeSpreadsheet(
 
   const existing = await listSheetTitles(fetchImpl, input.fileId, signal);
   if (existing.status !== 'ok') return asFailure(existing);
-  if (!existing.value.includes(title)) {
+  const alreadyThere = existing.value.includes(title);
+  if (input.mode === 'create') {
+    if (alreadyThere) {
+      return {
+        status: 'error',
+        message: `A sheet named “${title}” already exists. Select it to replace its rows, or choose another name.`,
+      };
+    }
     const added = await requestJson(
       fetchImpl,
       `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(input.fileId)}:batchUpdate`,
       { method: 'POST', signal, body: { requests: [{ addSheet: { properties: { title } } }] } },
     );
     if (added.status !== 'ok') return asFailure(added);
+  } else if (!alreadyThere) {
+    return { status: 'error', message: `This spreadsheet has no sheet named “${title}”. Choose Create a new sheet.` };
+  } else {
+    const range = sheetRange(title, 'A:ZZ');
+    const cleared = await requestJson(
+      fetchImpl,
+      `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(input.fileId)}/values/${encodeURIComponent(range)}:clear`,
+      { method: 'POST', signal, body: {} },
+    );
+    if (cleared.status !== 'ok') return asFailure(cleared);
   }
-
-  const range = sheetRange(title, 'A:ZZ');
-  const cleared = await requestJson(
-    fetchImpl,
-    `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(input.fileId)}/values/${encodeURIComponent(range)}:clear`,
-    { method: 'POST', signal, body: {} },
-  );
-  if (cleared.status !== 'ok') return asFailure(cleared);
 
   const written = await requestJson(
     fetchImpl,

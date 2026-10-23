@@ -526,10 +526,15 @@ td {
 .sheet-backdrop {
   position: absolute;
   inset: 0;
+  appearance: none;
   border: 0;
-  background: color-mix(in oklch, var(--foreground) 24%, transparent);
+  background: oklch(0 0 0 / 32%);
   padding: 0;
   cursor: pointer;
+}
+
+:root.dark .sheet-backdrop {
+  background: oklch(0 0 0 / 64%);
 }
 
 .side-sheet {
@@ -543,8 +548,12 @@ td {
   flex-direction: column;
   border-left: 1px solid var(--border);
   background: var(--card);
-  box-shadow: -16px 0 40px color-mix(in oklch, var(--foreground) 16%, transparent);
+  box-shadow: -16px 0 40px oklch(0 0 0 / 22%);
   animation: sheet-in 160ms ease-out;
+}
+
+:root.dark .side-sheet {
+  box-shadow: -16px 0 40px oklch(0 0 0 / 55%);
 }
 
 .side-sheet:focus {

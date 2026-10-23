@@ -5,6 +5,7 @@ import { loadJobUserEmail, loadServiceAccountEmail, type CredentialJob } from '.
 import {
   googleFileUrl,
   parseGoogleFileLink,
+  sheetTitle,
   storedSheetName,
   type ExportKind,
   type ExportTarget,
@@ -31,6 +32,8 @@ function rowCount(rows: number): string {
   return rows === 1 ? '1 row' : `${rows} rows`;
 }
 
+const CREATE_SHEET = 'create:';
+
 const SCOPE_TEXT =
   'This version added Google Sheets, Google Docs, and permission to list files already shared with the service account. Select the Credential again for SQL-Console.';
 
@@ -55,11 +58,12 @@ export function ExportPanel({
   const [kind, setKind] = useState<ExportKind>(target?.kind ?? 'sheet');
   const [fileId, setFileId] = useState(target?.fileId ?? '');
   const [sheetName, setSheetName] = useState(target?.sheetName ?? '');
+  const [wantsNew, setWantsNew] = useState(false);
   const [link, setLink] = useState('');
   const [linkChecked, setLinkChecked] = useState(false);
   const [reload, setReload] = useState(0);
   const [listed, setListed] = useState<{ request: number; files: SharedFile[]; note: string | null } | null>(null);
-  const [titleState, setTitleState] = useState<{ fileId: string; titles: string[] } | null>(null);
+  const [titleState, setTitleState] = useState<{ fileId: string; titles: string[] | null } | null>(null);
   const [email, setEmail] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const [message, setMessage] = useState<{ tone: 'ok' | 'error'; text: string } | null>(null);
@@ -127,7 +131,7 @@ export function ExportPanel({
     const requested = fileId;
     void listSheetTitles(fetchImpl, requested, controller.signal).then(result => {
       if (controller.signal.aborted) return;
-      setTitleState({ fileId: requested, titles: result.status === 'ok' ? result.value : [] });
+      setTitleState({ fileId: requested, titles: result.status === 'ok' ? result.value : null });
       if (result.status === 'scope') setMessage({ tone: 'error', text: SCOPE_TEXT });
     });
     return () => controller.abort();
@@ -156,13 +160,35 @@ export function ExportPanel({
     publish(next, '', sheetName);
   }
 
+  function onSheetPick(value: string) {
+    if (value === CREATE_SHEET) {
+      setWantsNew(true);
+      const currentIsExisting = Array.isArray(titleLoad) && titleLoad.includes(sheetName);
+      publish(kind, fileId, currentIsExisting ? '' : sheetName);
+      return;
+    }
+    setWantsNew(false);
+    publish(kind, fileId, value);
+  }
+
   const files = fetchImpl && listed ? listed.files : [];
   const listNote = !fetchImpl ? NOT_GRANTED : listed?.request === reload ? listed.note : null;
   const loadingFiles = Boolean(open && fetchImpl && listed?.request !== reload);
-  const titles = titleState?.fileId === fileId ? titleState.titles : [];
+  const titleLoad = titleState?.fileId === fileId ? titleState.titles : undefined;
+  const knownTitles = Array.isArray(titleLoad) ? titleLoad : [];
+  const creating =
+    kind === 'sheet' && (wantsNew || (Array.isArray(titleLoad) && sheetName !== '' && !titleLoad.includes(sheetName)));
+  const nextSheetTitle = sheetTitle(sheetName, queryTitle);
+  const newNameTaken = creating && Array.isArray(titleLoad) && titleLoad.includes(nextSheetTitle);
+  const loadingSheets = Boolean(open && fetchImpl && kind === 'sheet' && fileId && titleLoad === undefined);
+  const sheetReady =
+    kind !== 'sheet' ||
+    (fileId !== '' &&
+      titleLoad !== undefined &&
+      (creating ? !newNameTaken : sheetName !== '' && (titleLoad === null || titleLoad.includes(sheetName))));
   const visible = files.filter(file => file.kind === kind);
   const known = visible.some(file => file.id === fileId);
-  const canExport = Boolean(fetchImpl) && fileId !== '' && columns.length > 0 && !busy && !exporting;
+  const canExport = Boolean(fetchImpl) && fileId !== '' && columns.length > 0 && !busy && !exporting && sheetReady;
 
   function closeSheet() {
     if (!exporting) setOpen(false);
@@ -203,17 +229,30 @@ export function ExportPanel({
       reportExport(result.status === 'ok' ? { status: 'ok', text: `Appended ${rowCount(result.value.rows)} to the document.` } : result);
       return;
     }
+    const creatingSheet = creating;
     const result = await writeSpreadsheet(
       fetchImpl,
-      { fileId, sheetName, fallbackSheetName: queryTitle, columns, rows },
+      { fileId, sheetName, fallbackSheetName: queryTitle, mode: creatingSheet ? 'create' : 'replace', columns, rows },
       signal,
     );
     setExporting(false);
-    reportExport(
-      result.status === 'ok'
-        ? { status: 'ok', text: `Wrote ${rowCount(result.value.rows)} to “${result.value.sheetName}”.` }
-        : result,
-    );
+    if (result.status === 'ok') {
+      const writtenName = result.value.sheetName;
+      setWantsNew(false);
+      setTitleState(current => {
+        const titles = current?.fileId === fileId && current.titles ? current.titles : [];
+        return { fileId, titles: titles.includes(writtenName) ? titles : [...titles, writtenName] };
+      });
+      if (sheetName !== writtenName) publish('sheet', fileId, writtenName);
+      reportExport({
+        status: 'ok',
+        text: creatingSheet
+          ? `Created “${writtenName}” and wrote ${rowCount(result.value.rows)}.`
+          : `Wrote ${rowCount(result.value.rows)} to “${writtenName}”.`,
+      });
+      return;
+    }
+    reportExport(result);
   }
 
   const sheet =
@@ -300,23 +339,56 @@ export function ExportPanel({
                 {kind === 'sheet' ? (
                   <label>
                     Sheet
+                    <select
+                      aria-label="Sheet"
+                      value={creating ? CREATE_SHEET : sheetName}
+                      disabled={exporting || !fileId}
+                      onChange={event => onSheetPick(event.target.value)}
+                    >
+                      <option value="">Choose a sheet</option>
+                      {sheetName && !creating && !knownTitles.includes(sheetName) ? (
+                        <option value={sheetName}>{sheetName}</option>
+                      ) : null}
+                      {knownTitles.map(title => (
+                        <option key={title} value={title}>
+                          {title}
+                        </option>
+                      ))}
+                      <option value={CREATE_SHEET}>Create a new sheet</option>
+                    </select>
+                  </label>
+                ) : null}
+                {creating ? (
+                  <label>
+                    New sheet name
                     <input
-                      aria-label="Sheet name"
-                      list="export-sheet-names"
+                      aria-label="New sheet name"
                       value={sheetName}
                       disabled={exporting}
                       placeholder={queryTitle.trim() || 'Results'}
                       onChange={event => publish(kind, fileId, event.target.value)}
                     />
-                    <datalist id="export-sheet-names">
-                      {titles.map(title => (
-                        <option key={title} value={title} />
-                      ))}
-                    </datalist>
                   </label>
                 ) : null}
+                {loadingSheets ? <p className="history-note">Loading sheets…</p> : null}
                 {kind === 'sheet' ? (
-                  <p className="history-note">Other queries can use this spreadsheet and write a different sheet.</p>
+                  newNameTaken ? (
+                    <p className="history-note">
+                      This name is already a sheet. Select it to replace its rows, or type another name.
+                    </p>
+                  ) : creating ? (
+                    <p className="history-note">
+                      Export adds this sheet and does not change the other sheets. Leave the name empty to use the query
+                      title.
+                    </p>
+                  ) : sheetName ? (
+                    <p className="history-note">
+                      Export replaces the rows on this sheet. Other queries can use this spreadsheet and a different
+                      sheet.
+                    </p>
+                  ) : (
+                    <p className="history-note">Choose a sheet to replace its rows, or create a new sheet.</p>
+                  )
                 ) : (
                   <p className="history-note">Each export adds a heading and a table at the end of this document.</p>
                 )}

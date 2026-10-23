@@ -66,10 +66,9 @@ describe('sharedFiles', () => {
 });
 
 describe('writeSpreadsheet', () => {
-  it('adds a missing sheet, clears it, and writes the page at A1', async () => {
+  it('adds a new sheet and writes the page at A1 without clearing other sheets', async () => {
     const { fetchImpl, calls } = scripted([
       { body: { sheets: [{ properties: { title: 'Other' } }] } },
-      { body: {} },
       { body: {} },
       { body: {} },
     ]);
@@ -77,47 +76,80 @@ describe('writeSpreadsheet', () => {
       fileId: FILE,
       sheetName: '',
       fallbackSheetName: 'Revenue',
+      mode: 'create',
       columns: ['name'],
       rows: [['Ada']],
     });
     assert.deepEqual(written, { status: 'ok', value: { sheetName: 'Revenue', rows: 1 } });
     assert.match(calls[1]?.url ?? '', /:batchUpdate$/);
     assert.deepEqual(calls[1]?.body, { requests: [{ addSheet: { properties: { title: 'Revenue' } } }] });
-    assert.match(calls[2]?.url ?? '', /\/values\/'Revenue'!A%3AZZ:clear$/);
-    assert.match(calls[3]?.url ?? '', /valueInputOption=RAW/);
-    assert.deepEqual(calls[3]?.body, { values: [['name'], ['Ada']] });
+    assert.equal(calls.some(call => String(call.url).includes(':clear')), false);
+    assert.match(calls[2]?.url ?? '', /valueInputOption=RAW/);
+    assert.deepEqual(calls[2]?.body, { values: [['name'], ['Ada']] });
   });
 
-  it('does not add a sheet that already exists', async () => {
+  it('clears an existing sheet when replacing it', async () => {
     const { fetchImpl, calls } = scripted([{ body: { sheets: [{ properties: { title: 'Daily' } }] } }, { body: {} }, { body: {} }]);
     const written = await writeSpreadsheet(fetchImpl, {
       fileId: FILE,
       sheetName: 'Daily',
       fallbackSheetName: 'Revenue',
+      mode: 'replace',
       columns: ['name'],
       rows: [],
     });
     assert.equal(written.status, 'ok');
     assert.equal(calls.some(call => JSON.stringify(call.body ?? null).includes('addSheet')), false);
+    assert.match(calls[1]?.url ?? '', /\/values\/'Daily'!A%3AZZ:clear$/);
+  });
+
+  it('does not replace a sheet when the new name already exists', async () => {
+    const { fetchImpl, calls } = scripted([{ body: { sheets: [{ properties: { title: 'Daily' } }] } }]);
+    const written = await writeSpreadsheet(fetchImpl, {
+      fileId: FILE,
+      sheetName: 'Daily',
+      fallbackSheetName: 'Revenue',
+      mode: 'create',
+      columns: ['name'],
+      rows: [],
+    });
+    assert.equal(written.status, 'error');
+    if (written.status === 'error') assert.match(written.message, /already exists/);
+    assert.equal(calls.length, 1);
+  });
+
+  it('does not create a sheet when replacing one that is missing', async () => {
+    const { fetchImpl, calls } = scripted([{ body: { sheets: [{ properties: { title: 'Other' } }] } }]);
+    const written = await writeSpreadsheet(fetchImpl, {
+      fileId: FILE,
+      sheetName: 'Daily',
+      fallbackSheetName: 'Revenue',
+      mode: 'replace',
+      columns: ['name'],
+      rows: [],
+    });
+    assert.equal(written.status, 'error');
+    if (written.status === 'error') assert.match(written.message, /no sheet named/);
+    assert.equal(calls.length, 1);
   });
 
   it('reports a missing share as denied and a disabled API as the Google message', async () => {
     const denied = await writeSpreadsheet(
       scripted([{ status: 403, body: { error: { message: 'The caller does not have permission' } } }]).fetchImpl,
-      { fileId: FILE, sheetName: 'Daily', fallbackSheetName: 'Revenue', columns: ['name'], rows: [] },
+      { fileId: FILE, sheetName: 'Daily', fallbackSheetName: 'Revenue', mode: 'replace', columns: ['name'], rows: [] },
     );
     assert.deepEqual(denied, { status: 'denied' });
 
     const disabled = await writeSpreadsheet(
       scripted([{ status: 403, body: { error: { message: 'Google Sheets API has not been used in project 1 before or it is disabled.' } } }]).fetchImpl,
-      { fileId: FILE, sheetName: 'Daily', fallbackSheetName: 'Revenue', columns: ['name'], rows: [] },
+      { fileId: FILE, sheetName: 'Daily', fallbackSheetName: 'Revenue', mode: 'replace', columns: ['name'], rows: [] },
     );
     assert.equal(disabled.status, 'error');
     if (disabled.status === 'error') assert.match(disabled.message, /disabled/);
 
     const scope = await writeSpreadsheet(
       scripted([{ status: 403, body: { error: { message: 'Request had insufficient authentication scopes.' } } }]).fetchImpl,
-      { fileId: FILE, sheetName: 'Daily', fallbackSheetName: 'Revenue', columns: ['name'], rows: [] },
+      { fileId: FILE, sheetName: 'Daily', fallbackSheetName: 'Revenue', mode: 'replace', columns: ['name'], rows: [] },
     );
     assert.deepEqual(scope, { status: 'scope' });
   });
@@ -125,7 +157,7 @@ describe('writeSpreadsheet', () => {
   it('refuses a page with no columns', async () => {
     const written = await writeSpreadsheet(async () => {
       throw new Error('should not fetch');
-    }, { fileId: FILE, sheetName: 'Daily', fallbackSheetName: 'Revenue', columns: [], rows: [] });
+    }, { fileId: FILE, sheetName: 'Daily', fallbackSheetName: 'Revenue', mode: 'replace', columns: [], rows: [] });
     assert.equal(written.status, 'error');
   });
 });
