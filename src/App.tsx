@@ -16,6 +16,7 @@ import { sameExportTarget, type ExportTarget } from './export-target.ts';
 import { createSqlDataMart, dataMartPath } from './data-mart.ts';
 import { loadSqlSources, type SqlSource } from './sources.ts';
 import { describeError } from './errors.ts';
+import { Hint } from './Hint.tsx';
 import {
   canGoNext,
   DEFAULT_PAGE_SIZE,
@@ -1001,6 +1002,14 @@ function Console({ ctx }: { ctx: PluginContext }) {
                 <Play size={14} aria-hidden="true" />
                 {running ? 'Running…' : 'Run'}
               </button>
+              <Hint label="these buttons">
+                Settings chooses where the query runs. Pick a BigQuery storage to fill the GCP project and location, or
+                type them. Jobs use the plugin service account, not the key saved on the storage. Import SQL puts a data
+                mart's SQL, or the full SQL a report will run, into the editor. Update data mart appears after a data
+                mart import and writes this SQL back; a report is never written back. Create data mart makes a new SQL
+                data mart and does not change an existing one. Save keeps this query in SQL-Console. Run executes it and
+                shows the rows.
+              </Hint>
             </div>
           </div>
           <div className="editor-body">
@@ -1030,8 +1039,21 @@ function Console({ ctx }: { ctx: PluginContext }) {
               location={session?.location ?? null}
             />
             {sqlOrigin ? (
-              <span className="import-source" title={sqlOrigin.title}>
-                {sqlOrigin.kind === 'data-mart' ? sqlOrigin.title : `Report ${sqlOrigin.title}`}
+              <span className="import-source">
+                <span className="import-source-kind">
+                  {sqlOrigin.kind === 'data-mart' ? 'Data mart' : 'Report'}
+                </span>
+                <span className="import-source-name" title={sqlOrigin.title}>
+                  {sqlOrigin.title}
+                </span>
+                <Hint
+                  label={sqlOrigin.kind === 'data-mart' ? 'imported data mart' : 'imported report'}
+                  placement="above"
+                >
+                  {sqlOrigin.kind === 'data-mart'
+                    ? 'This is the data mart the SQL was imported from. The editor is a separate copy. Update data mart is what writes it back, and reports on that data mart then run the new SQL.'
+                    : 'This is the report the SQL was imported from. The editor has the full SQL that report will run, including columns, filters, and limits. That SQL is not written back to a data mart.'}
+                </Hint>
               </span>
             ) : null}
             <QueryDryRun
@@ -1368,7 +1390,10 @@ function CredentialStatus({
 
   return (
     <span className="credential-status" title={email ? `${email}. ${title}` : title}>
-      Credential · {identity}
+      <span className="credential-name">Credential · {identity}</span>
+      <Hint label="the service account" placement="above">
+        {title}
+      </Hint>
     </span>
   );
 }

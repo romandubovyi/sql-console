@@ -25,16 +25,18 @@ export interface StorageCatalog {
 
 export function storageOptionFromDetail(storage: StorageListItem, detail: unknown): BigQueryStorageOption | null {
   if (!BIGQUERY_TYPES.has(storage.type)) return null;
+  if (storage.availableForUse === false) return null;
   const config = asRecord(asRecord(detail)?.config);
   const projectId = config?.projectId;
+  const gcpProjectId = typeof projectId === 'string' && projectId.trim() ? projectId.trim() : null;
+  if (!gcpProjectId) return null;
   const legacy = storage.type === 'LEGACY_GOOGLE_BIGQUERY';
   let title = storage.title.trim() ? storage.title.trim() : 'Untitled storage';
   if (legacy) title = `${title} (legacy)`;
-  if (storage.availableForUse === false) title = `${title} (unavailable)`;
   return {
     id: storage.id,
     title,
-    gcpProjectId: typeof projectId === 'string' && projectId.trim() ? projectId.trim() : null,
+    gcpProjectId,
     location: normalizeLocation(config?.location),
   };
 }
@@ -47,9 +49,10 @@ export function filterStorageOptions(
   options: readonly BigQueryStorageOption[],
   query: string,
 ): BigQueryStorageOption[] {
+  const fillable = options.filter(option => option.gcpProjectId);
   const needle = query.trim().toLowerCase();
-  if (!needle) return [...options];
-  return options.filter(option => {
+  if (!needle) return fillable;
+  return fillable.filter(option => {
     const haystack = [option.title, option.gcpProjectId ?? '', option.location ?? 'autodetect'].join('\n');
     return haystack.toLowerCase().includes(needle);
   });
@@ -77,14 +80,14 @@ export async function loadBigQueryStorages(owox: OWOXApiClient): Promise<Storage
   const loaded = await mapInBatches(bigQuery, DETAIL_BATCH, async storage => {
     try {
       const detail = await owox.getJson<unknown>(`/api/data-storages/${encodeURIComponent(storage.id)}`);
-      return storageOptionFromDetail(storage, detail);
+      return { option: storageOptionFromDetail(storage, detail), failed: false };
     } catch {
-      return null;
+      return { option: null, failed: true };
     }
   });
-  const options = loaded.filter((option): option is BigQueryStorageOption => option !== null);
+  const options = loaded.flatMap(item => (item.option ? [item.option] : []));
   options.sort((left, right) => left.title.localeCompare(right.title));
-  return { options, unread: loaded.length - options.length };
+  return { options, unread: loaded.filter(item => item.failed).length };
 }
 
 function normalizeLocation(location: unknown): string | null {

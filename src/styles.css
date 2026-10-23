@@ -309,13 +309,82 @@ select {
 }
 
 .credential-status {
+  display: inline-flex;
   min-width: 0;
   flex: 1;
-  overflow: hidden;
+  align-items: center;
+  gap: 0.25rem;
   color: var(--foreground);
   font-size: 0.75rem;
+}
+
+.credential-name {
+  min-width: 0;
+  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.field-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.hint {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+}
+
+.hint-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1rem;
+  height: 1rem;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  padding: 0;
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+
+.hint-button:hover,
+.hint-button[aria-expanded='true'] {
+  color: var(--foreground);
+  background: var(--muted);
+}
+
+.hint-pop {
+  position: absolute;
+  z-index: 8;
+  top: calc(100% + 0.35rem);
+  left: 0;
+  width: min(18rem, calc(100vw - 2rem));
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--background);
+  padding: 0.55rem 0.65rem;
+  color: var(--foreground);
+  font-size: 0.75rem;
+  font-weight: 400;
+  line-height: 1.4;
+  text-align: left;
+  white-space: normal;
+  box-shadow: 0 8px 24px color-mix(in oklch, var(--foreground) 12%, transparent);
+}
+
+.editor-actions .hint-pop,
+.hint-pop.above {
+  right: 0;
+  left: auto;
+}
+
+.hint-pop.above {
+  top: auto;
+  bottom: calc(100% + 0.35rem);
 }
 
 .editor-hint {
@@ -325,15 +394,15 @@ select {
 .dry-run {
   display: inline-flex;
   min-width: 0;
-  max-width: 16rem;
+  max-width: 18rem;
   flex: none;
   align-items: center;
   gap: 0.3rem;
-  overflow: hidden;
   white-space: nowrap;
 }
 
-.dry-run span {
+.dry-run > span:not(.hint) {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -634,10 +703,24 @@ td {
 }
 
 .import-source {
-  max-width: 12rem;
-  overflow: hidden;
+  display: inline-flex;
+  min-width: 0;
+  max-width: 18rem;
+  flex: none;
+  align-items: center;
+  gap: 0.3rem;
   color: var(--muted-foreground);
   font-size: 0.75rem;
+}
+
+.import-source-kind {
+  flex: none;
+  font-weight: 600;
+}
+
+.import-source-name {
+  min-width: 0;
+  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }

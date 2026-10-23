@@ -40,14 +40,31 @@ describe('storageOptionFromDetail', () => {
     assert.equal(storageSuggestionDetail(option!), 'Project owox-prod · Location EU');
   });
 
-  it('treats autodetect as an empty location and marks legacy or unavailable storages', () => {
+  it('treats autodetect as an empty location and keeps a legacy storage that has a project', () => {
     const option = storageOptionFromDetail(
-      { id: 'ads', title: 'Ads', type: 'LEGACY_GOOGLE_BIGQUERY', availableForUse: false },
+      { id: 'ads', title: 'Ads', type: 'LEGACY_GOOGLE_BIGQUERY' },
       { config: { projectId: 'owox-ads', location: 'AUTODETECT' } },
     );
-    assert.equal(option?.title, 'Ads (legacy) (unavailable)');
+    assert.equal(option?.title, 'Ads (legacy)');
     assert.equal(option?.location, null);
-    assert.equal(storageSuggestionDetail({ ...ads, title: option!.title }), 'Project owox-ads · Location autodetect');
+    assert.equal(storageSuggestionDetail(option!), 'Project owox-ads · Location autodetect');
+  });
+
+  it('drops a storage that is unavailable or has no GCP project', () => {
+    assert.equal(
+      storageOptionFromDetail(
+        { id: 'ads', title: 'Ads', type: 'GOOGLE_BIGQUERY', availableForUse: false },
+        { config: { projectId: 'owox-ads', location: 'EU' } },
+      ),
+      null,
+    );
+    assert.equal(
+      storageOptionFromDetail(
+        { id: 'draft', title: 'Draft', type: 'GOOGLE_BIGQUERY' },
+        { config: { location: 'US' } },
+      ),
+      null,
+    );
   });
 
   it('ignores storages that are not BigQuery', () => {
@@ -61,8 +78,11 @@ describe('storageOptionFromDetail', () => {
 describe('filterStorageOptions', () => {
   const options = [revenue, ads, empty];
 
-  it('shows every storage until the user types', () => {
-    assert.deepEqual(filterStorageOptions(options, '  '), options);
+  it('hides a storage that cannot fill the project', () => {
+    assert.deepEqual(
+      filterStorageOptions(options, '  ').map(option => option.id),
+      ['revenue', 'ads'],
+    );
   });
 
   it('matches the storage name, project, or location', () => {

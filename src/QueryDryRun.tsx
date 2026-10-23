@@ -2,6 +2,7 @@ import { exactCredential, type PluginContext } from '@owox/plugin-sdk';
 import { Check, LoaderCircle, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { dryRunBigQuery, formatBytes } from './bigquery.ts';
+import { Hint } from './Hint.tsx';
 import { GOOGLE_SERVICE_ACCOUNT } from './credential.ts';
 import { describeError } from './errors.ts';
 
@@ -64,10 +65,17 @@ export function QueryDryRun({ ctx, sql, projectId, location, enabled }: QueryDry
   }, [ctx, enabled, key, place, project, query]);
 
   if (!enabled || query === '') return null;
+  const hint = (
+    <Hint label="SQL check" placement="above">
+      Checks this SQL without returning rows and shows how much data BigQuery expects to read. The number is an
+      estimate. It uses the same project, location, and service account as Run.
+    </Hint>
+  );
   if (project === '') {
     return (
       <span className="dry-run" title="Open settings and set the GCP project">
         Set a project to check this query
+        {hint}
       </span>
     );
   }
@@ -79,6 +87,7 @@ export function QueryDryRun({ ctx, sql, projectId, location, enabled }: QueryDry
       <span className="dry-run" title="Checking this SQL with BigQuery">
         <LoaderCircle className="spin" size={12} aria-hidden="true" />
         Validating…
+        {hint}
       </span>
     );
   }
@@ -87,6 +96,7 @@ export function QueryDryRun({ ctx, sql, projectId, location, enabled }: QueryDry
       <span className="dry-run invalid" title={current.message}>
         <X size={12} aria-hidden="true" />
         <span>{current.message}</span>
+        {hint}
       </span>
     );
   }
@@ -95,6 +105,7 @@ export function QueryDryRun({ ctx, sql, projectId, location, enabled }: QueryDry
     <span className="dry-run valid" title="Estimated volume. It can differ when the query runs.">
       <Check size={12} aria-hidden="true" />
       <span>{bytes ? `Valid SQL · ${bytes}` : 'Valid SQL'}</span>
+      {hint}
     </span>
   );
 }

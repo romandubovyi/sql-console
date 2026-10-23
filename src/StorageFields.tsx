@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent } from 'react';
+import { Hint } from './Hint.tsx';
 import {
   filterStorageOptions,
   firstSelectableIndex,
@@ -105,7 +106,12 @@ export function StorageFields({
   return (
     <div className="storage-fields" ref={rootRef}>
       <label className="page-size">
-        Project
+        <span className="field-label">
+          Project
+          <Hint label="GCP project">
+            The GCP project where BigQuery runs the job. This is not the OWOX project. Choosing a storage fills it.
+          </Hint>
+        </span>
         <input
           className="project-input"
           name="project"
@@ -131,7 +137,12 @@ export function StorageFields({
         />
       </label>
       <label className="page-size">
-        Location
+        <span className="field-label">
+          Location
+          <Hint label="BigQuery location">
+            The BigQuery location, such as EU. Leave it empty and BigQuery chooses. Choosing a storage fills it.
+          </Hint>
+        </span>
         <input
           className="location-input"
           name="location"
@@ -166,8 +177,8 @@ export function StorageFields({
             <p className="storage-suggest-note">
               {options.length === 0
                 ? unread > 0
-                  ? 'BigQuery storages could not be read. Type a project id and location.'
-                  : 'No BigQuery storages in this project.'
+                  ? 'Some BigQuery storages could not be read. Type a project id and location.'
+                  : 'No usable BigQuery storage is available. Type a project id and location.'
                 : 'No storages match what you typed.'}
             </p>
           ) : null}

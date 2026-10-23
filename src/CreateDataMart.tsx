@@ -1,5 +1,6 @@
 import { Database } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { Hint } from './Hint.tsx';
 import { storageSuggestionDetail, type BigQueryStorageOption } from './storages.ts';
 
 interface CreateDataMartProps {
@@ -98,7 +99,13 @@ export function CreateDataMart({
             <input aria-label="Data mart title" value={title} disabled={creating} onChange={event => setTitle(event.target.value)} />
           </label>
           <label>
-            Storage
+            <span className="field-label">
+              Storage
+              <Hint label="Data mart storage">
+                The new data mart is saved on this storage. Running the query here still uses the service account and the
+                project in settings.
+              </Hint>
+            </span>
             <select
               aria-label="Data mart storage"
               value={storageId}
@@ -106,7 +113,7 @@ export function CreateDataMart({
               onChange={event => setStorageId(event.target.value)}
             >
               <option value="">Select a storage</option>
-              {storages.map(storage => (
+              {storages.filter(storage => storage.gcpProjectId).map(storage => (
                 <option key={storage.id} value={storage.id}>
                   {storage.title} · {storageSuggestionDetail(storage)}
                 </option>
@@ -116,7 +123,7 @@ export function CreateDataMart({
           {storageStatus === 'loading' ? <p className="history-note">Loading storages…</p> : null}
           {storageStatus === 'error' ? <p className="history-note">Storages could not be loaded.</p> : null}
           {storageStatus === 'ready' && storages.length === 0 ? (
-            <p className="history-note">No BigQuery storage is available.</p>
+            <p className="history-note">No usable BigQuery storage is available.</p>
           ) : null}
           {error ? (
             <p className="banner" role="alert">

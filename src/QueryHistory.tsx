@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { diffSideBySide, type DiffCell } from './diff.ts';
+import { Hint } from './Hint.tsx';
 import { formatVersionTime, type QueryVersion } from './queries.ts';
 
 interface QueryHistoryProps {
@@ -36,15 +37,21 @@ export function QueryHistory({ versions, open, headIndex, onOpenChange, onSelect
 
   return (
     <div className="history" ref={rootRef}>
-      <button
-        className="details-button"
-        type="button"
-        aria-expanded={open}
-        aria-controls="query-versions"
-        onClick={() => onOpenChange(!open)}
-      >
-        Versions
-      </button>
+      <span className="field-label">
+        <button
+          className="details-button"
+          type="button"
+          aria-expanded={open}
+          aria-controls="query-versions"
+          onClick={() => onOpenChange(!open)}
+        >
+          Versions
+        </button>
+        <Hint label="Versions" placement="above">
+          Each save keeps a copy of the SQL. Compare two versions, then load one into the editor. Saving again does not
+          change the data mart.
+        </Hint>
+      </span>
       {open ? (
         <div className="history-panel" id="query-versions" role="region" aria-label="Query versions">
           <p className="history-note">{versionLabel} · Last 100 saves</p>

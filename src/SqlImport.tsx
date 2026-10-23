@@ -1,6 +1,7 @@
 import { FileInput, Upload } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { describeError } from './errors.ts';
+import { Hint } from './Hint.tsx';
 import type { SqlOrigin } from './queries.ts';
 import {
   dataMartOrigin,
@@ -193,8 +194,12 @@ export function SqlImport({ sql, origin, disabled, client, onImport, onUpdated }
       ) : null}
       {open ? (
         <div className="mart-panel import-panel" id="import-sql" role="dialog" aria-label="Import SQL">
-          <p className="mart-lead">
-            Choose a SQL data mart, or a report. A report inserts the SQL that report will run.
+          <p className="mart-lead field-label">
+            Choose a SQL data mart, or a report.
+            <Hint label="Import SQL">
+              A data mart inserts the SQL saved on it. A report inserts the full SQL that report will run, including
+              columns, filters, and limits. Only a data mart can be updated from here.
+            </Hint>
           </p>
           {phase === 'loading' ? <p className="history-note">Loading data marts and reports…</p> : null}
           {phase === 'error' && error ? (
