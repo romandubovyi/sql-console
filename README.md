@@ -1,26 +1,39 @@
 # SQL-Console
 
-Query BigQuery without leaving OWOX. Save the SQL, look at the rows, and put them where the team already reads them: a Google Sheet, a Doc, or a SQL data mart. A daily or weekly run can replace that sheet even when SQL-Console is closed.
+Check a BigQuery result and hand it over as a Google Sheet or Doc, before anyone creates an OWOX report.
+
+An analyst often needs an answer today: a number, a slice, a list. A report is a data mart, a destination, the report itself, and sometimes a schedule. SQL-Console stays inside the project and uses what is already there: BigQuery storages, data marts you can open, and one service account. You write the query, see the rows, and export.
 
 ![Write, run, keep, send, and repeat a BigQuery query](docs/flow.svg)
 
-## Why it is useful
+## Where it is the faster job
 
-- **The warehouse stays read-only.** A query is one `SELECT` or `WITH`. The credential can run jobs and read tables. It cannot change BigQuery data.
-- **The SQL stays with the work.** Each save keeps the statement. Compare any two versions side by side, and leave a Markdown note of up to 2,500 characters beside the query.
-- **You start from data marts you can already open.** After `FROM` or `JOIN`, suggestions offer `project.dataset.table` for tables, views, and connector tables. Fields from those tables appear in `SELECT`, `WHERE`, `ON`, and `GROUP BY`.
-- **A good query can become a data mart.** Create a SQL data mart on a BigQuery storage and open it, without retyping the statement.
-- **The sheet can refresh itself.** Save the query, export once so the tab exists, then pick a day and a time. The run uses that saved SQL and the GCP project and location from the moment you saved the schedule.
+| You need | In SQL-Console | What you skip |
+| --- | --- | --- |
+| Check a figure | Run one read-only query and page the rows. The same result opens again for about 24 hours. | A data mart and a report for a question nobody else will rerun. |
+| Drop rows into a Sheet or Doc | Export this page, or up to 100,000 rows, into a spreadsheet. A Doc gets a heading and a table at the end, up to 2,000 cells. | A Google Sheets destination, a sheet id, and a report run. A Doc is not a report destination. |
+| Refresh one tab every day or week | Save the query, export once so the tab exists, and pick the time. The run keeps going while SQL-Console is closed. | A SQL data mart, a Sheets destination, a report, and a report-run trigger. |
+| Find a table you already model | Suggestions offer `project.dataset.table` from tables, views, and connector tables behind data marts you can open, then the fields of those tables. | Looking the names up outside the project. They come from data marts you can already open. |
+| Keep the draft | Every save keeps the SQL. Compare any two versions, and leave a Markdown note of up to 2,500 characters. | Editing a published data mart just to test a question. |
+| Make it official | Create a SQL data mart from this query and open it. That is the step into OWOX. | Retyping a query that already worked. |
 
-## What you can do
+CSV of the current page is the smallest hand-off: one file, no Sheet and no report.
+
+## When a report is the right tool
+
+Use a report when the number is shared and should stay the project's source of truth, when other people filter or rerun it, or when the Sheet should refresh through a destination's own Google account. SQL-Console writes with the plugin service account, to files that account can already edit. It does not replace that report.
+
+## What a run can do
 
 | | |
 | --- | --- |
-| Preview | Page through the result. The last run opens again for about 24 hours. Clear cache forgets the job and does not delete a BigQuery table. |
+| Preview | Page through the result. Clear cache forgets the saved job and does not delete a BigQuery table. |
 | Download | CSV of the current preview page. A later page is a separate file. |
-| Export | This page, or up to 100,000 rows from the current job, into a Google Sheet. A Doc can take 2,000 cells, appended as a new heading and table. Several queries can share one spreadsheet, each with its own tab. |
-| Schedule | Daily or weekly replacement of that sheet tab. Pause, resume, and delete also live under Plugins → Schedules. |
+| Export | Replace a sheet tab, or add a new one and leave the other tabs as they are. Several queries can share one spreadsheet. |
+| Schedule | Daily or weekly replacement of that sheet. A document stays a manual export. Pause, resume, and delete also live under Plugins → Schedules. |
 | Project | Pick a BigQuery storage to fill the GCP project and location, or type them. Leave location empty and BigQuery chooses. |
+
+The query is one `SELECT` or `WITH`. The credential can run jobs and read tables. It cannot change BigQuery data.
 
 ## Before the first export
 

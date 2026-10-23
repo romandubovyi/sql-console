@@ -52,6 +52,6 @@
       <text x="884" y="136" font-size="12" fill="#d7e2ff">Same sheet tab</text>
       <text x="884" y="154" font-size="12" fill="#d7e2ff">While you are away</text>
     </g>
-    <text x="520" y="222" text-anchor="middle" font-size="12" fill="#5e6a7d">The schedule uses the saved SQL and the project captured when you saved it. A document stays manual.</text>
+    <text x="520" y="222" text-anchor="middle" font-size="12" fill="#5e6a7d">Check the rows, then send them. Create an OWOX report only when this query should stay.</text>
   </g>
 </svg>
