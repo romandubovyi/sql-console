@@ -8,9 +8,15 @@ Suggestions use the BigQuery tables, views, and connector tables behind data mar
 
 Focus Project or Location and pick a BigQuery storage. The list names the storage and shows the GCP project and location that will be filled in. You can still type either value. The Credential does not include the project id. Leave location empty to let BigQuery choose.
 
-The query runs with the Google Service Account Credential you grant when installing the plugin. One installation uses one Credential. OWOX keeps that key and attaches a `bigquery.readonly` token to requests to `*.googleapis.com`. A Storage's own saved key is not used. The editor foot names that Credential, and shows the service account email when Google or the BigQuery job reports it.
+The query runs with the Google Service Account Credential you grant when installing the plugin. One installation uses one Credential. OWOX keeps that key and attaches a token for the plugin scopes to requests to `*.googleapis.com`. A Storage's own saved key is not used. The editor foot names that Credential, and shows the service account email when Google or the BigQuery job reports it.
 
 Download CSV saves the rows on the current preview page. A later page is a separate file.
+
+Export this page sends that same preview page to a Google Sheet or Google Doc saved on the query. Several queries can share one spreadsheet and write different sheets. Leave the sheet name empty to use the query title. Re-export replaces that sheet. A document gets a new heading and table at the end, and earlier text stays.
+
+The Credential also requests Sheets, Docs, and read-only Drive file metadata. After this update, select the Credential again. Enable the Google Sheets API, Google Docs API, and Google Drive API on the GCP project that owns the key.
+
+The plugin cannot share a file. Open the Sheet or Doc, choose Share, and add the service account address as Editor. The list shows files that account can already open. Pasting a link uses the same access.
 
 The service account needs **BigQuery Job User** on the GCP project and **BigQuery Data Viewer** on the tables. A Storage that signs in with Google OAuth needs a separate service account Credential.
 

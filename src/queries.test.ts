@@ -70,21 +70,28 @@ describe('queryIsDirty', () => {
     sql: 'SELECT 1',
     description: '',
     versions: [{ sql: 'SELECT 1', savedAt: '2026-10-20T00:00:00Z' }],
+    exportTarget: null,
   };
+  const target = { kind: 'sheet' as const, fileId: 'abcdefghij1234', sheetName: 'Daily' };
 
   it('is clean when the editor matches the latest save', () => {
-    assert.equal(queryIsDirty(stored, 'Revenue', 'SELECT 1', ''), false);
+    assert.equal(queryIsDirty(stored, 'Revenue', 'SELECT 1', '', null), false);
   });
 
   it('is dirty when the text changed after the last save', () => {
     assert.equal(
-      queryIsDirty({ ...stored, sql: 'SELECT 2', versions: stored.versions }, 'Revenue', 'SELECT 2', ''),
+      queryIsDirty({ ...stored, sql: 'SELECT 2', versions: stored.versions }, 'Revenue', 'SELECT 2', '', null),
       true,
     );
   });
 
   it('is dirty when only the description changed', () => {
-    assert.equal(queryIsDirty(stored, 'Revenue', 'SELECT 1', 'Daily revenue'), true);
+    assert.equal(queryIsDirty(stored, 'Revenue', 'SELECT 1', 'Daily revenue', null), true);
+  });
+
+  it('is dirty when only the export target changed', () => {
+    assert.equal(queryIsDirty(stored, 'Revenue', 'SELECT 1', '', target), true);
+    assert.equal(queryIsDirty({ ...stored, exportTarget: target }, 'Revenue', 'SELECT 1', '', target), false);
   });
 });
 
@@ -93,6 +100,16 @@ describe('description', () => {
     assert.equal(normalizeQuery({ title: 'Revenue', sql: 'SELECT 1' }).description, '');
     assert.equal(limitDescription('a'.repeat(MAX_DESCRIPTION + 20)).length, MAX_DESCRIPTION);
     assert.equal(normalizeQuery({ description: 'b'.repeat(MAX_DESCRIPTION + 5) }).description.length, MAX_DESCRIPTION);
+  });
+
+  it('keeps a blank sheet name blank and drops a target without a file id', () => {
+    assert.deepEqual(normalizeQuery({ exportTarget: { kind: 'sheet', fileId: 'abcdefghij1234', sheetName: '' } }).exportTarget, {
+      kind: 'sheet',
+      fileId: 'abcdefghij1234',
+      sheetName: '',
+    });
+    assert.equal(normalizeQuery({ exportTarget: { kind: 'doc', fileId: 'short' } }).exportTarget, null);
+    assert.equal(normalizeQuery({ title: 'Revenue' }).exportTarget, null);
   });
 });
 

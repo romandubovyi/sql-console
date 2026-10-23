@@ -516,6 +516,32 @@ td {
   gap: 0.5rem;
 }
 
+.export-panel {
+  width: min(26rem, calc(100vw - 2rem));
+}
+
+.export-panel .editor-mode {
+  justify-self: start;
+}
+
+.export-share {
+  display: grid;
+  gap: 0.25rem;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+}
+
+.export-share p {
+  margin: 0;
+}
+
+.export-share code {
+  user-select: text;
+  color: var(--foreground);
+  font-size: 0.75rem;
+  word-break: break-all;
+}
+
 .project-input {
   width: 9rem;
 }

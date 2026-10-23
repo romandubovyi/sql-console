@@ -1,4 +1,5 @@
 import type { PluginCollection, PluginCollectionDocument } from '@owox/plugin-sdk';
+import { normalizeExportTarget, sameExportTarget, type ExportTarget } from './export-target.ts';
 
 export const QUERIES_COLLECTION = 'queries';
 export const PREFERENCES_COLLECTION = 'preferences';
@@ -16,6 +17,7 @@ export interface QueryDocument {
   sql: string;
   description: string;
   versions: QueryVersion[];
+  exportTarget: ExportTarget | null;
 }
 
 export interface QueryItem {
@@ -24,6 +26,7 @@ export interface QueryItem {
   sql: string;
   description: string;
   versions: QueryVersion[];
+  exportTarget: ExportTarget | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -34,7 +37,20 @@ export interface PreferencesDocument {
 }
 
 export function emptyQuery(): QueryDocument {
-  return { title: UNTITLED_QUERY, sql: '', description: '', versions: [] };
+  return { title: UNTITLED_QUERY, sql: '', description: '', versions: [], exportTarget: null };
+}
+
+export function storedQuery(
+  input: Pick<QueryDocument, 'title' | 'sql' | 'description' | 'exportTarget'>,
+  versions: QueryVersion[],
+): QueryDocument {
+  return {
+    title: input.title.trim() || UNTITLED_QUERY,
+    sql: input.sql,
+    description: limitDescription(input.description),
+    versions,
+    exportTarget: normalizeExportTarget(input.exportTarget),
+  };
 }
 
 export function limitDescription(value: string): string {
@@ -67,14 +83,20 @@ export function appendVersion(versions: QueryVersion[], sql: string, savedAt: st
 }
 
 export function queryIsDirty(
-  stored: Pick<QueryItem, 'title' | 'sql' | 'description' | 'versions'> | null,
+  stored: Pick<QueryItem, 'title' | 'sql' | 'description' | 'versions' | 'exportTarget'> | null,
   title: string,
   sql: string,
   description: string,
+  exportTarget: ExportTarget | null,
 ): boolean {
   if (!stored) return false;
   const nextTitle = title.trim() || UNTITLED_QUERY;
-  if (stored.title !== nextTitle || stored.sql !== sql || stored.description !== limitDescription(description)) {
+  if (
+    stored.title !== nextTitle ||
+    stored.sql !== sql ||
+    stored.description !== limitDescription(description) ||
+    !sameExportTarget(stored.exportTarget, exportTarget)
+  ) {
     return true;
   }
   if (sql.trim() === '') return false;
@@ -102,7 +124,7 @@ export function normalizeQuery(document: unknown): QueryDocument {
         return [{ sql: item.sql, savedAt: item.savedAt }];
       }).slice(0, MAX_VERSIONS)
     : [];
-  return { title, sql, description, versions };
+  return { title, sql, description, versions, exportTarget: normalizeExportTarget(record?.exportTarget) };
 }
 
 export function normalizePreferences(document: unknown): PreferencesDocument {
@@ -121,6 +143,7 @@ export function toQueryItem(stored: PluginCollectionDocument<unknown>): QueryIte
     sql: document.sql,
     description: document.description,
     versions: document.versions,
+    exportTarget: document.exportTarget,
     createdAt: stored.createdAt,
     updatedAt: stored.updatedAt,
   };

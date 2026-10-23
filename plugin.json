@@ -1,6 +1,6 @@
 {
   "name": "SQL-Console",
-  "description": "Run a read-only BigQuery query with the plugin Credential, and keep saved queries.",
+  "description": "Run a read-only BigQuery query with the plugin Credential, keep saved queries, and export a preview page to a Google Sheet or Doc.",
   "collections": [
     {
       "name": "queries",
@@ -18,7 +18,12 @@
   "credentials": [
     {
       "id": "google-service-account",
-      "scopes": ["https://www.googleapis.com/auth/bigquery.readonly"]
+      "scopes": [
+        "https://www.googleapis.com/auth/bigquery.readonly",
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/documents",
+        "https://www.googleapis.com/auth/drive.metadata.readonly"
+      ]
     }
   ]
 }

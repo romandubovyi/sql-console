@@ -10,6 +10,8 @@ import {
 import { csvFilename, downloadTextFile, toCsv } from './csv.ts';
 import { GOOGLE_SERVICE_ACCOUNT, loadJobUserEmail, loadServiceAccountEmail } from './credential.ts';
 import { CreateDataMart } from './CreateDataMart.tsx';
+import { ExportPanel } from './ExportPanel.tsx';
+import { sameExportTarget, type ExportTarget } from './export-target.ts';
 import { createSqlDataMart, dataMartPath } from './data-mart.ts';
 import { loadSqlSources, type SqlSource } from './sources.ts';
 import { describeError } from './errors.ts';
@@ -31,13 +33,13 @@ import {
   emptyQuery,
   initialVersionPick,
   landingQuery,
-  limitDescription,
   MAX_DESCRIPTION,
   listAllQueries,
   normalizePreferences,
   PREFERENCES_COLLECTION,
   QUERIES_COLLECTION,
   queryIsDirty,
+  storedQuery,
   toQueryItem,
   UNTITLED_QUERY,
   type PreferencesDocument,
@@ -73,6 +75,7 @@ interface Draft {
   title: string;
   sql: string;
   description: string;
+  exportTarget: ExportTarget | null;
 }
 
 export default function App() {
@@ -137,6 +140,7 @@ function Console({ ctx }: { ctx: PluginContext }) {
   const [title, setTitle] = useState(UNTITLED_QUERY);
   const [sql, setSql] = useState('');
   const [description, setDescription] = useState('');
+  const [exportTarget, setExportTarget] = useState<ExportTarget | null>(null);
   const [editorMode, setEditorMode] = useState<'sql' | 'description'>('sql');
   const [deleteArmedId, setDeleteArmedId] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -180,6 +184,7 @@ function Console({ ctx }: { ctx: PluginContext }) {
     setTitle(item.title);
     setSql(item.sql);
     setDescription(item.description);
+    setExportTarget(item.exportTarget);
     setEditorMode('sql');
     setSession(null);
     setHistoryOpen(false);
@@ -309,15 +314,16 @@ function Console({ ctx }: { ctx: PluginContext }) {
     async (draft: Draft) => {
       const current = queriesRef.current.find(query => query.id === draft.id);
       if (!current) return;
-      const nextTitle = draft.title.trim() || UNTITLED_QUERY;
-      const nextDescription = limitDescription(draft.description);
-      if (current.title === nextTitle && current.sql === draft.sql && current.description === nextDescription) return;
-      const saved = await ctx.collections<QueryDocument>(QUERIES_COLLECTION).put(draft.id, {
-        title: nextTitle,
-        sql: draft.sql,
-        description: nextDescription,
-        versions: current.versions,
-      });
+      const next = storedQuery(draft, current.versions);
+      if (
+        current.title === next.title &&
+        current.sql === next.sql &&
+        current.description === next.description &&
+        sameExportTarget(current.exportTarget, next.exportTarget)
+      ) {
+        return;
+      }
+      const saved = await ctx.collections<QueryDocument>(QUERIES_COLLECTION).put(draft.id, next);
       replaceQuery(toQueryItem(saved));
     },
     [ctx, replaceQuery],
@@ -325,30 +331,27 @@ function Console({ ctx }: { ctx: PluginContext }) {
 
   useEffect(() => {
     if (queryState !== 'ready' || !selectedId) return;
-    const draft = { id: selectedId, title, sql, description };
+    const draft = { id: selectedId, title, sql, description, exportTarget };
     const handle = setTimeout(() => {
       void enqueue(() => persistDraft(draft)).catch((cause: unknown) => {
         setNotice({ message: describeError(cause) });
       });
     }, 800);
     return () => clearTimeout(handle);
-  }, [description, enqueue, persistDraft, queryState, selectedId, sql, title]);
+  }, [description, enqueue, exportTarget, persistDraft, queryState, selectedId, sql, title]);
 
   async function onSave() {
-    const draft = { id: selectedId, title, sql, description };
+    const draft = { id: selectedId, title, sql, description, exportTarget };
     if (!draft.id) return;
     setSaving(true);
     try {
       await enqueue(async () => {
         const current = queriesRef.current.find(query => query.id === draft.id);
         if (!current) return;
-        const nextTitle = draft.title.trim() || UNTITLED_QUERY;
-        const saved = await ctx.collections<QueryDocument>(QUERIES_COLLECTION).put(draft.id, {
-          title: nextTitle,
-          sql: draft.sql,
-          description: limitDescription(draft.description),
-          versions: appendVersion(current.versions, draft.sql, new Date().toISOString()),
-        });
+        const saved = await ctx.collections<QueryDocument>(QUERIES_COLLECTION).put(
+          draft.id,
+          storedQuery(draft, appendVersion(current.versions, draft.sql, new Date().toISOString())),
+        );
         const item = toQueryItem(saved);
         replaceQuery(item);
         if (draft.id === selectedId) setTitle(item.title);
@@ -362,7 +365,7 @@ function Console({ ctx }: { ctx: PluginContext }) {
 
   async function openQuery(id: string) {
     if (id === selectedId) return;
-    const draft = { id: selectedId, title, sql, description };
+    const draft = { id: selectedId, title, sql, description, exportTarget };
     setDeleteArmedId(null);
     try {
       await enqueue(async () => {
@@ -377,7 +380,7 @@ function Console({ ctx }: { ctx: PluginContext }) {
   }
 
   async function onCreate() {
-    const draft = { id: selectedId, title, sql, description };
+    const draft = { id: selectedId, title, sql, description, exportTarget };
     setDeleteArmedId(null);
     try {
       await enqueue(async () => {
@@ -394,7 +397,7 @@ function Console({ ctx }: { ctx: PluginContext }) {
   }
 
   async function onDelete(id: string) {
-    const draft = { id: selectedId, title, sql, description };
+    const draft = { id: selectedId, title, sql, description, exportTarget };
     setDeleteArmedId(null);
     try {
       await enqueue(async () => {
@@ -451,7 +454,7 @@ function Console({ ctx }: { ctx: PluginContext }) {
 
   const trimmedProject = projectId.trim();
   const runDisabled = running || paging || !trimmedProject || sql.trim().length === 0 || queryState !== 'ready';
-  const saveDisabled = saving || !selected || !queryIsDirty(selected, title, sql, description);
+  const saveDisabled = saving || !selected || !queryIsDirty(selected, title, sql, description, exportTarget);
 
   async function onRun() {
     if (runDisabled) return;
@@ -460,7 +463,7 @@ function Console({ ctx }: { ctx: PluginContext }) {
       setSession(null);
       setNotice({
         message:
-          'Google Service Account access is not granted. Reinstall SQL-Console and select a Credential with BigQuery read access.',
+          'Google Service Account access is not granted. Select the Credential again for SQL-Console.',
       });
       return;
     }
@@ -827,6 +830,25 @@ function Console({ ctx }: { ctx: PluginContext }) {
               <Download size={12} aria-hidden="true" />
               Download CSV
             </button>
+            <ExportPanel
+              key={selectedId}
+              queryTitle={title}
+              target={exportTarget}
+              onTarget={setExportTarget}
+              columns={session?.columns ?? []}
+              rows={session?.rows ?? []}
+              busy={running || paging}
+              fetchImpl={credentialFetch(ctx)}
+              openExternal={url => {
+                void ctx.ui.openExternal(url);
+              }}
+              signal={ctx.signal}
+              job={
+                session?.jobId
+                  ? { projectId: session.projectId, jobId: session.jobId, location: session.location }
+                  : null
+              }
+            />
             <span className="preview-meta">
               {session
                 ? [formatRowRange(session.pageIndex, session.pageSize, session.rows.length, session.totalRows), bytes ? `${bytes} processed` : null]
@@ -999,7 +1021,7 @@ function CredentialStatus({
   const identity = !granted ? 'not granted' : (email ?? 'Google Service Account');
   const title = granted
     ? 'Queries run with this plugin Credential, the Google Service Account selected when SQL-Console was installed. The key saved on a Storage is not used.'
-    : 'No Google Service Account Credential is granted. Reinstall SQL-Console and select one.';
+    : 'No Google Service Account Credential is granted. Select the Credential again for SQL-Console.';
 
   return (
     <span className="credential-status" title={email ? `${email}. ${title}` : title}>
