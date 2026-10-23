@@ -1042,12 +1042,13 @@ function Console({ ctx }: { ctx: PluginContext }) {
                   folders: removeFolder(savedPreferences.current.folders, id),
                 }).catch((cause: unknown) => setNotice({ message: describeError(cause) }))
               }
-              onMove={(queryId, folderId) =>
-                void persistPreferences({
-                  ...savedPreferences.current,
-                  folders: moveQuery(savedPreferences.current.folders, queryId, folderId),
-                }).catch((cause: unknown) => setNotice({ message: describeError(cause) }))
-              }
+              onMove={(queryId, folderId) => {
+                const next = moveQuery(savedPreferences.current.folders, queryId, folderId);
+                if (next === savedPreferences.current.folders) return;
+                void persistPreferences({ ...savedPreferences.current, folders: next }).catch((cause: unknown) =>
+                  setNotice({ message: describeError(cause) }),
+                );
+              }}
             />
           ) : null}
         </div>

@@ -1,7 +1,14 @@
 import { ChevronDown, ChevronRight, FolderInput, Pencil, Trash2 } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type DragEvent } from 'react';
 import { folderIdFor, type QueryFolder } from './folders.ts';
 import type { QueryItem } from './queries.ts';
+
+const QUERY_DRAG_TYPE = 'application/x-sql-console-query';
+
+function dropFolderId(target: EventTarget | null): string | null {
+  if (!(target instanceof Element)) return null;
+  return target.closest<HTMLElement>('[data-folder-id]')?.dataset.folderId ?? null;
+}
 
 interface QueryTreeProps {
   folders: readonly QueryFolder[];
@@ -35,6 +42,37 @@ export function QueryTree({
   const skipRename = useRef(false);
   const [removeArmedId, setRemoveArmedId] = useState<string | null>(null);
   const [movingId, setMovingId] = useState<string | null>(null);
+  const draggingRef = useRef<string | null>(null);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<string | null>(null);
+
+  function beginDrag(id: string) {
+    draggingRef.current = id;
+    setDraggingId(id);
+    setMovingId(null);
+  }
+
+  function endDrag() {
+    draggingRef.current = null;
+    setDraggingId(null);
+    setDropTarget(null);
+  }
+
+  function dragOver(event: DragEvent<HTMLElement>) {
+    if (!draggingRef.current) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+    const next = dropFolderId(event.target) ?? 'root';
+    setDropTarget(current => (current === next ? current : next));
+  }
+
+  function drop(event: DragEvent<HTMLElement>) {
+    const queryId = draggingRef.current;
+    if (!queryId) return;
+    event.preventDefault();
+    onMove(queryId, dropFolderId(event.target));
+    endDrag();
+  }
   const byId = new Map(queries.map(query => [query.id, query]));
   const placed = new Set(folders.flatMap(folder => folder.queryIds));
   const loose = queries.filter(query => !placed.has(query.id));
@@ -56,9 +94,22 @@ export function QueryTree({
   }
 
   return (
-    <ul className="storage-list query-tree">
+    <ul
+      className="storage-list query-tree"
+      onDragOver={dragOver}
+      onDrop={drop}
+      onDragLeave={event => {
+        const next = event.relatedTarget;
+        if (next instanceof Node && event.currentTarget.contains(next)) return;
+        setDropTarget(null);
+      }}
+    >
       {folders.map(folder => (
-        <li key={folder.id} className="folder-block">
+        <li
+          key={folder.id}
+          className={dropTarget === folder.id ? 'folder-block is-drop' : 'folder-block'}
+          data-folder-id={folder.id}
+        >
           <div className="folder-head">
             {renamingId === folder.id ? (
               <input
@@ -134,12 +185,16 @@ export function QueryTree({
                     selected={query.id === selectedId}
                     deleteArmed={deleteArmedId === query.id}
                     moving={movingId === query.id}
+                    dragging={draggingId === query.id}
+                    canDrag={folders.length > 0}
                     folders={folders}
                     onOpen={onOpen}
                     onArmDelete={onArmDelete}
                     onDelete={onDelete}
                     onMove={onMove}
                     onMoving={setMovingId}
+                    onDragQuery={beginDrag}
+                    onDragQueryEnd={endDrag}
                   />
                 ) : null;
               })}
@@ -154,14 +209,21 @@ export function QueryTree({
           selected={query.id === selectedId}
           deleteArmed={deleteArmedId === query.id}
           moving={movingId === query.id}
+          dragging={draggingId === query.id}
+          canDrag={folders.length > 0}
           folders={folders}
           onOpen={onOpen}
           onArmDelete={onArmDelete}
           onDelete={onDelete}
           onMove={onMove}
           onMoving={setMovingId}
+          onDragQuery={beginDrag}
+          onDragQueryEnd={endDrag}
         />
       ))}
+      {draggingId ? (
+        <li className={dropTarget === 'root' ? 'root-drop is-drop' : 'root-drop'}>Outside folders</li>
+      ) : null}
     </ul>
   );
 }
@@ -171,25 +233,34 @@ function QueryRow({
   selected,
   deleteArmed,
   moving,
+  dragging,
+  canDrag,
   folders,
   onOpen,
   onArmDelete,
   onDelete,
   onMove,
   onMoving,
+  onDragQuery,
+  onDragQueryEnd,
 }: {
   query: QueryItem;
   selected: boolean;
   deleteArmed: boolean;
   moving: boolean;
+  dragging: boolean;
+  canDrag: boolean;
   folders: readonly QueryFolder[];
   onOpen: (id: string) => void;
   onArmDelete: (id: string | null) => void;
   onDelete: (id: string) => void;
   onMove: (queryId: string, folderId: string | null) => void;
   onMoving: (id: string | null) => void;
+  onDragQuery: (id: string) => void;
+  onDragQueryEnd: () => void;
 }) {
   const rowRef = useRef<HTMLLIElement>(null);
+  const suppressClick = useRef(false);
   const home = folderIdFor(folders, query.id);
 
   useEffect(() => {
@@ -211,12 +282,29 @@ function QueryRow({
   }, [moving, onMoving]);
 
   return (
-    <li className="query-row" id={`query-${query.id}`} ref={rowRef}>
+    <li className={dragging ? 'query-row is-dragging' : 'query-row'} id={`query-${query.id}`} ref={rowRef}>
       <button
         type="button"
         className="storage-item"
+        draggable={canDrag}
         aria-current={selected ? 'true' : undefined}
-        onClick={() => onOpen(query.id)}
+        title={canDrag ? 'Drag into a folder' : undefined}
+        onDragStart={event => {
+          suppressClick.current = true;
+          event.dataTransfer.setData(QUERY_DRAG_TYPE, query.id);
+          event.dataTransfer.effectAllowed = 'move';
+          onDragQuery(query.id);
+        }}
+        onDragEnd={() => {
+          setTimeout(onDragQueryEnd, 0);
+          setTimeout(() => {
+            suppressClick.current = false;
+          }, 0);
+        }}
+        onClick={() => {
+          if (suppressClick.current) return;
+          onOpen(query.id);
+        }}
       >
         <span className="storage-title">{query.title}</span>
       </button>
@@ -226,7 +314,7 @@ function QueryRow({
           type="button"
           aria-expanded={moving}
           aria-label={`Move ${query.title}`}
-          title="Move to a folder"
+          title="Move to a folder, or drag the query"
           onClick={() => {
             onArmDelete(null);
             onMoving(moving ? null : query.id);

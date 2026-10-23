@@ -860,6 +860,34 @@ td {
   flex: 1;
 }
 
+.query-row .storage-item[draggable='true'] {
+  cursor: grab;
+  user-select: none;
+}
+
+.query-row.is-dragging {
+  opacity: 0.45;
+}
+
+.folder-block.is-drop {
+  border-radius: 0.375rem;
+  background: var(--sidebar-accent);
+}
+
+.root-drop {
+  margin: 0.35rem 0.35rem 0.15rem;
+  padding: 0.35rem 0.5rem;
+  border: 1px dashed var(--border);
+  border-radius: 0.4rem;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+}
+
+.root-drop.is-drop {
+  background: var(--sidebar-accent);
+  color: inherit;
+}
+
 .title-input,
 .project-input,
 .location-input {
