@@ -1,6 +1,6 @@
 {
   "name": "SQL-Console",
-  "description": "Check a BigQuery result and send it to a Sheet or Doc, without creating an OWOX report. Save the SQL, compare versions, or refresh that sheet daily or weekly even while SQL-Console is closed. When the answer belongs in OWOX, turn the same query into a SQL data mart.",
+  "description": "Check a BigQuery result and send it to a Sheet or Doc, without creating an OWOX report. Import SQL from a data mart or the query a report will run, edit it here, and write a data mart's SQL back. Save the SQL, compare versions, or refresh a sheet daily or weekly even while SQL-Console is closed.",
   "collections": [
     {
       "name": "queries",

@@ -14,6 +14,7 @@ import {
   normalizeQuery,
   normalizeScheduledExport,
   normalizeSheetSchedule,
+  normalizeSqlOrigin,
   queryIsDirty,
   UNTITLED_QUERY,
 } from './queries.ts';
@@ -168,6 +169,35 @@ describe('normalizeSheetSchedule', () => {
       rows: null,
     });
     assert.equal(clipped?.message.length, 500);
+  });
+});
+
+describe('normalizeSqlOrigin', () => {
+  const mart = {
+    kind: 'data-mart' as const,
+    dataMartId: '11111111-1111-4111-8111-111111111111',
+    title: 'Revenue',
+  };
+
+  it('keeps a data mart or a report and drops a broken id', () => {
+    assert.deepEqual(normalizeSqlOrigin(mart), mart);
+    assert.deepEqual(
+      normalizeSqlOrigin({
+        kind: 'report',
+        reportId: '22222222-2222-4222-8222-222222222222',
+        dataMartId: mart.dataMartId,
+        title: 'Weekly',
+      }),
+      {
+        kind: 'report',
+        reportId: '22222222-2222-4222-8222-222222222222',
+        dataMartId: mart.dataMartId,
+        title: 'Weekly',
+      },
+    );
+    assert.equal(normalizeSqlOrigin({ ...mart, dataMartId: 'mart 1' }), null);
+    assert.equal(normalizeQuery({ sqlOrigin: mart }).sqlOrigin?.kind, 'data-mart');
+    assert.equal(normalizeQuery({ title: 'Revenue' }).sqlOrigin, null);
   });
 });
 

@@ -145,6 +145,7 @@ async function storeResult(
         lastRun: patch.lastRun === undefined ? current.lastRun : patch.lastRun,
         sheetSchedule: current.sheetSchedule,
         scheduledExport: patch.scheduledExport,
+        sqlOrigin: current.sqlOrigin,
       },
       current.versions,
     ),

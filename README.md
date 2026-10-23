@@ -16,6 +16,7 @@ An analyst often needs an answer today: a number, a slice, a list. A report is a
 | Find a table you already model | Suggestions offer `project.dataset.table` from tables, views, and connector tables behind data marts you can open, then the fields of those tables. | Looking the names up outside the project. They come from data marts you can already open. |
 | Keep the draft | Every save keeps the SQL. Compare any two versions, and leave a Markdown note of up to 2,500 characters. | Editing a published data mart just to test a question. |
 | Make it official | Create a SQL data mart from this query and open it. That is the step into OWOX. | Retyping a query that already worked. |
+| Try a change safely | Import a SQL data mart, or the SQL a report will run. Edit and run it here, then update that data mart when the new SQL is the one you want. A report is not written back. | Changing the data mart before you have seen the rows. |
 
 CSV of the current page is the smallest hand-off: one file, no Sheet and no report.
 

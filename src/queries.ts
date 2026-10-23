@@ -40,6 +40,11 @@ export interface ScheduledExport {
   rows: number | null;
 }
 
+/** Where the editor SQL was imported from. A report is never written back. */
+export type SqlOrigin =
+  | { kind: 'data-mart'; dataMartId: string; title: string }
+  | { kind: 'report'; reportId: string; dataMartId: string; title: string };
+
 export interface QueryDocument {
   title: string;
   sql: string;
@@ -49,6 +54,7 @@ export interface QueryDocument {
   lastRun: LastRun | null;
   sheetSchedule: SheetSchedule | null;
   scheduledExport: ScheduledExport | null;
+  sqlOrigin: SqlOrigin | null;
 }
 
 export interface QueryItem {
@@ -61,6 +67,7 @@ export interface QueryItem {
   lastRun: LastRun | null;
   sheetSchedule: SheetSchedule | null;
   scheduledExport: ScheduledExport | null;
+  sqlOrigin: SqlOrigin | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -80,13 +87,14 @@ export function emptyQuery(): QueryDocument {
     lastRun: null,
     sheetSchedule: null,
     scheduledExport: null,
+    sqlOrigin: null,
   };
 }
 
 export function storedQuery(
   input: Pick<
     QueryDocument,
-    'title' | 'sql' | 'description' | 'exportTarget' | 'lastRun' | 'sheetSchedule' | 'scheduledExport'
+    'title' | 'sql' | 'description' | 'exportTarget' | 'lastRun' | 'sheetSchedule' | 'scheduledExport' | 'sqlOrigin'
   >,
   versions: QueryVersion[],
 ): QueryDocument {
@@ -99,6 +107,7 @@ export function storedQuery(
     lastRun: normalizeLastRun(input.lastRun),
     sheetSchedule: normalizeSheetSchedule(input.sheetSchedule),
     scheduledExport: normalizeScheduledExport(input.scheduledExport),
+    sqlOrigin: normalizeSqlOrigin(input.sqlOrigin),
   };
 }
 
@@ -182,7 +191,36 @@ export function normalizeQuery(document: unknown): QueryDocument {
     lastRun: normalizeLastRun(record?.lastRun),
     sheetSchedule: normalizeSheetSchedule(record?.sheetSchedule),
     scheduledExport: normalizeScheduledExport(record?.scheduledExport),
+    sqlOrigin: normalizeSqlOrigin(record?.sqlOrigin),
   };
+}
+
+export function normalizeSqlOrigin(value: unknown): SqlOrigin | null {
+  const record = asRecord(value);
+  if (!record) return null;
+  const title = originTitle(record.title);
+  if (!title) return null;
+  if (record.kind === 'data-mart') {
+    const dataMartId = cleanToken(record.dataMartId, 64);
+    return dataMartId ? { kind: 'data-mart', dataMartId, title } : null;
+  }
+  if (record.kind === 'report') {
+    const reportId = cleanToken(record.reportId, 64);
+    const dataMartId = cleanToken(record.dataMartId, 64) ?? '';
+    return reportId ? { kind: 'report', reportId, dataMartId, title } : null;
+  }
+  return null;
+}
+
+export function sameSqlOrigin(left: SqlOrigin | null, right: SqlOrigin | null): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function originTitle(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const title = value.trim();
+  if (!title) return null;
+  return title.length <= 255 ? title : title.slice(0, 255);
 }
 
 export function normalizeSheetSchedule(value: unknown): SheetSchedule | null {
@@ -253,6 +291,7 @@ export function toQueryItem(stored: PluginCollectionDocument<unknown>): QueryIte
     lastRun: document.lastRun,
     sheetSchedule: document.sheetSchedule,
     scheduledExport: document.scheduledExport,
+    sqlOrigin: document.sqlOrigin,
     createdAt: stored.createdAt,
     updatedAt: stored.updatedAt,
   };

@@ -10,6 +10,7 @@ import {
 import { csvFilename, downloadTextFile, toCsv } from './csv.ts';
 import { GOOGLE_SERVICE_ACCOUNT, loadJobUserEmail, loadServiceAccountEmail } from './credential.ts';
 import { CreateDataMart } from './CreateDataMart.tsx';
+import { SqlImport } from './SqlImport.tsx';
 import { ExportPanel } from './ExportPanel.tsx';
 import { sameExportTarget, type ExportTarget } from './export-target.ts';
 import { createSqlDataMart, dataMartPath } from './data-mart.ts';
@@ -41,6 +42,7 @@ import {
   PREFERENCES_COLLECTION,
   QUERIES_COLLECTION,
   queryIsDirty,
+  sameSqlOrigin,
   storedQuery,
   toQueryItem,
   UNTITLED_QUERY,
@@ -48,6 +50,7 @@ import {
   type QueryDocument,
   type QueryItem,
   type SheetSchedule,
+  type SqlOrigin,
 } from './queries.ts';
 import { deleteExportSchedule } from './schedule.ts';
 import { SqlEditor } from './SqlEditor.tsx';
@@ -80,6 +83,7 @@ interface Draft {
   sql: string;
   description: string;
   exportTarget: ExportTarget | null;
+  sqlOrigin: SqlOrigin | null;
 }
 
 export default function App() {
@@ -171,6 +175,7 @@ function Console({ ctx }: { ctx: PluginContext }) {
   const [creatingMart, setCreatingMart] = useState(false);
   const [martError, setMartError] = useState<string | null>(null);
   const [createdMartId, setCreatedMartId] = useState<string | null>(null);
+  const [sqlOrigin, setSqlOrigin] = useState<SqlOrigin | null>(null);
   const [session, setSession] = useState<ResultSession | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
 
@@ -195,6 +200,7 @@ function Console({ ctx }: { ctx: PluginContext }) {
     setSql(item.sql);
     setDescription(item.description);
     setExportTarget(item.exportTarget);
+    setSqlOrigin(item.sqlOrigin);
     setEditorMode('sql');
     setSession(null);
     setHistoryOpen(false);
@@ -240,6 +246,7 @@ function Console({ ctx }: { ctx: PluginContext }) {
         setSql(landing.sql);
         setDescription(landing.description);
         setExportTarget(landing.exportTarget);
+        setSqlOrigin(landing.sqlOrigin);
         setEditorMode('sql');
         setQueryState('ready');
       } catch (cause) {
@@ -338,6 +345,7 @@ function Console({ ctx }: { ctx: PluginContext }) {
           lastRun: kept.lastRun,
           sheetSchedule: kept.sheetSchedule,
           scheduledExport: kept.scheduledExport,
+          sqlOrigin: draft.sqlOrigin,
         },
         kept.versions,
       );
@@ -346,6 +354,7 @@ function Console({ ctx }: { ctx: PluginContext }) {
         kept.sql === next.sql &&
         kept.description === next.description &&
         sameExportTarget(kept.exportTarget, next.exportTarget) &&
+        sameSqlOrigin(kept.sqlOrigin, next.sqlOrigin) &&
         JSON.stringify(kept.lastRun) === JSON.stringify(next.lastRun) &&
         JSON.stringify(kept.sheetSchedule) === JSON.stringify(next.sheetSchedule) &&
         JSON.stringify(kept.scheduledExport) === JSON.stringify(next.scheduledExport)
@@ -360,17 +369,17 @@ function Console({ ctx }: { ctx: PluginContext }) {
 
   useEffect(() => {
     if (queryState !== 'ready' || !selectedId) return;
-    const draft = { id: selectedId, title, sql, description, exportTarget };
+    const draft = { id: selectedId, title, sql, description, exportTarget, sqlOrigin };
     const handle = setTimeout(() => {
       void enqueue(() => persistDraft(draft)).catch((cause: unknown) => {
         setNotice({ message: describeError(cause) });
       });
     }, 800);
     return () => clearTimeout(handle);
-  }, [description, enqueue, exportTarget, persistDraft, queryState, selectedId, sql, title]);
+  }, [description, enqueue, exportTarget, persistDraft, queryState, selectedId, sql, sqlOrigin, title]);
 
   async function onSave() {
-    const draft = { id: selectedId, title, sql, description, exportTarget };
+    const draft = { id: selectedId, title, sql, description, exportTarget, sqlOrigin };
     if (!draft.id) return;
     setSaving(true);
     try {
@@ -386,6 +395,7 @@ function Console({ ctx }: { ctx: PluginContext }) {
               lastRun: kept.lastRun,
               sheetSchedule: kept.sheetSchedule,
               scheduledExport: kept.scheduledExport,
+              sqlOrigin: draft.sqlOrigin,
             },
             appendVersion(kept.versions, draft.sql, new Date().toISOString()),
           ),
@@ -403,7 +413,7 @@ function Console({ ctx }: { ctx: PluginContext }) {
 
   async function openQuery(id: string) {
     if (id === selectedId) return;
-    const draft = { id: selectedId, title, sql, description, exportTarget };
+    const draft = { id: selectedId, title, sql, description, exportTarget, sqlOrigin };
     setDeleteArmedId(null);
     try {
       await enqueue(async () => {
@@ -418,7 +428,7 @@ function Console({ ctx }: { ctx: PluginContext }) {
   }
 
   async function onCreate() {
-    const draft = { id: selectedId, title, sql, description, exportTarget };
+    const draft = { id: selectedId, title, sql, description, exportTarget, sqlOrigin };
     setDeleteArmedId(null);
     try {
       await enqueue(async () => {
@@ -435,7 +445,7 @@ function Console({ ctx }: { ctx: PluginContext }) {
   }
 
   async function onDelete(id: string) {
-    const draft = { id: selectedId, title, sql, description, exportTarget };
+    const draft = { id: selectedId, title, sql, description, exportTarget, sqlOrigin };
     setDeleteArmedId(null);
     try {
       await enqueue(async () => {
@@ -534,6 +544,7 @@ function Console({ ctx }: { ctx: PluginContext }) {
             },
             sheetSchedule: kept.sheetSchedule,
             scheduledExport: kept.scheduledExport,
+            sqlOrigin: kept.sqlOrigin,
           },
           current.versions,
         ),
@@ -563,6 +574,7 @@ function Console({ ctx }: { ctx: PluginContext }) {
               lastRun: null,
               sheetSchedule: kept.sheetSchedule,
               scheduledExport: kept.scheduledExport,
+              sqlOrigin: kept.sqlOrigin,
             },
             current.versions,
           ),
@@ -593,6 +605,7 @@ function Console({ ctx }: { ctx: PluginContext }) {
             lastRun: kept.lastRun,
             sheetSchedule,
             scheduledExport: kept.scheduledExport,
+            sqlOrigin: kept.sqlOrigin,
           },
           kept.versions,
         ),
@@ -940,6 +953,24 @@ function Console({ ctx }: { ctx: PluginContext }) {
               <Play size={14} aria-hidden="true" />
               {running ? 'Running…' : 'Run'}
             </button>
+            <SqlImport
+              sql={sql}
+              origin={sqlOrigin}
+              disabled={queryState !== 'ready'}
+              client={ctx.owox}
+              onImport={(nextSql, nextOrigin) => {
+                setSql(nextSql);
+                setSqlOrigin(nextOrigin);
+                showEditor('sql');
+                setNotice({
+                  message:
+                    nextOrigin.kind === 'report'
+                      ? `Imported the SQL “${nextOrigin.title}” will run.`
+                      : `Imported SQL from “${nextOrigin.title}”.`,
+                });
+              }}
+              onUpdated={message => setNotice({ message })}
+            />
             <CreateDataMart
               queryTitle={title}
               sql={sql}

@@ -23,6 +23,7 @@ function query(patch: Partial<QueryDocument> = {}): QueryDocument {
       timeZone: 'Europe/Kyiv',
     },
     scheduledExport: null,
+    sqlOrigin: null,
     ...patch,
   };
 }
