@@ -73,10 +73,28 @@ export interface QueryItem {
   updatedAt: string;
 }
 
+/** Pixel sizes the member chose for the queries pane and the editor pane. */
+export interface LayoutSizes {
+  /** Queries column width. */
+  sidebar: number;
+  /** Queries block height when the window is narrow. */
+  stack: number;
+  /** Editor block height. The preview fills the space that remains. */
+  editor: number;
+}
+
+export const DEFAULT_SIDEBAR_SIZE = 260;
+export const DEFAULT_EDITOR_SIZE = 320;
+export const SIDEBAR_MIN = 180;
+export const SIDEBAR_MAX = 480;
+export const EDITOR_MIN = 160;
+export const EDITOR_MAX = 1200;
+
 export interface PreferencesDocument {
   projectId: string;
   location: string;
   folders: QueryFolder[];
+  layout: LayoutSizes;
 }
 
 export function emptyQuery(): QueryDocument {
@@ -298,12 +316,31 @@ function cleanToken(value: unknown, max: number): string | null {
   return trimmed;
 }
 
+export function normalizeLayout(value: unknown): LayoutSizes {
+  const record = asRecord(value);
+  return {
+    sidebar: layoutSize(record?.sidebar, DEFAULT_SIDEBAR_SIZE, SIDEBAR_MIN, SIDEBAR_MAX),
+    stack: layoutSize(record?.stack, DEFAULT_SIDEBAR_SIZE, SIDEBAR_MIN, SIDEBAR_MAX),
+    editor: layoutSize(record?.editor, DEFAULT_EDITOR_SIZE, EDITOR_MIN, EDITOR_MAX),
+  };
+}
+
+export function sameLayout(left: LayoutSizes, right: LayoutSizes): boolean {
+  return left.sidebar === right.sidebar && left.stack === right.stack && left.editor === right.editor;
+}
+
+function layoutSize(value: unknown, fallback: number, min: number, max: number): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return fallback;
+  return Math.round(Math.min(max, Math.max(min, value)));
+}
+
 export function normalizePreferences(document: unknown): PreferencesDocument {
   const record = asRecord(document);
   return {
     projectId: typeof record?.projectId === 'string' ? record.projectId : '',
     location: typeof record?.location === 'string' ? record.location : '',
     folders: normalizeFolders(record?.folders),
+    layout: normalizeLayout(record?.layout),
   };
 }
 

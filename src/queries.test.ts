@@ -12,6 +12,8 @@ import {
   MAX_VERSIONS,
   lastRunExpiredMessage,
   normalizeLastRun,
+  normalizeLayout,
+  normalizePreferences,
   normalizeQuery,
   normalizeScheduledExport,
   normalizeSheetSchedule,
@@ -19,6 +21,37 @@ import {
   queryIsDirty,
   UNTITLED_QUERY,
 } from './queries.ts';
+
+describe('normalizeLayout', () => {
+  it('keeps a chosen column width, stacked height, and editor height', () => {
+    assert.deepEqual(normalizeLayout({ sidebar: 400.4, stack: 220.2, editor: 480.6 }), {
+      sidebar: 400,
+      stack: 220,
+      editor: 481,
+    });
+  });
+
+  it('uses the defaults when a size is missing or not a number', () => {
+    assert.deepEqual(normalizePreferences({ projectId: 'p', location: 'EU' }).layout, {
+      sidebar: 260,
+      stack: 260,
+      editor: 320,
+    });
+    assert.deepEqual(normalizeLayout({ sidebar: 'wide', editor: Number.NaN }), {
+      sidebar: 260,
+      stack: 260,
+      editor: 320,
+    });
+  });
+
+  it('clamps a size that is outside the pane limits', () => {
+    assert.deepEqual(normalizeLayout({ sidebar: 20, stack: 900, editor: 5000 }), {
+      sidebar: 180,
+      stack: 480,
+      editor: 1200,
+    });
+  });
+});
 
 describe('appendVersion', () => {
   it('keeps the newest save first and drops saves past the limit', () => {

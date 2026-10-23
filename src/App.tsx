@@ -1,6 +1,6 @@
 import { connect, exactCredential, type PluginContext } from '@owox/plugin-sdk';
 import { Check, ChevronLeft, ChevronRight, Download, FolderPlus, Play, Plus, Save } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   fetchResultPage,
   formatBytes,
@@ -47,6 +47,10 @@ import { Welcome } from './Welcome.tsx';
 import {
   appendVersion,
   compareWithPrevious,
+  DEFAULT_EDITOR_SIZE,
+  DEFAULT_SIDEBAR_SIZE,
+  EDITOR_MAX,
+  EDITOR_MIN,
   emptyQuery,
   formatVersionTime,
   initialVersionPick,
@@ -54,15 +58,20 @@ import {
   lastRunExpiredMessage,
   MAX_DESCRIPTION,
   listAllQueries,
+  normalizeLayout,
   normalizePreferences,
   PREFERENCES_COLLECTION,
   QUERIES_COLLECTION,
   queryIsDirty,
   resumeQuery,
+  sameLayout,
   sameSqlOrigin,
+  SIDEBAR_MAX,
+  SIDEBAR_MIN,
   storedQuery,
   toQueryItem,
   UNTITLED_QUERY,
+  type LayoutSizes,
   type PreferencesDocument,
   type QueryDocument,
   type QueryItem,
@@ -73,9 +82,6 @@ import { deleteExportSchedule } from './schedule.ts';
 import { SqlEditor } from './SqlEditor.tsx';
 import { loadBigQueryStorages, type BigQueryStorageOption } from './storages.ts';
 
-const SIDEBAR_MIN = 180;
-const SIDEBAR_MAX = 480;
-const EDITOR_MIN = 160;
 const PANE_MIN = 140;
 
 interface ResultSession {
@@ -152,14 +158,22 @@ function Console({ ctx }: { ctx: PluginContext }) {
   const mainRef = useRef<HTMLDivElement>(null);
   const queriesRef = useRef<QueryItem[]>([]);
   const writeRef = useRef(Promise.resolve());
-  const savedPreferences = useRef<PreferencesDocument>({ projectId: '', location: '', folders: [] });
+  const savedPreferences = useRef<PreferencesDocument>({
+    projectId: '',
+    location: '',
+    folders: [],
+    layout: normalizeLayout(null),
+  });
+  const layoutLive = useRef<LayoutSizes>(normalizeLayout(null));
+  const draggingRef = useRef(false);
   const preferenceWrite = useRef(Promise.resolve());
   const shownRun = useRef(0);
   const sessionRef = useRef<ResultSession | null>(null);
   const pageSizeRef = useRef<PageSize>(DEFAULT_PAGE_SIZE);
   const [narrow, setNarrow] = useState(() => window.matchMedia('(max-width: 760px)').matches);
-  const [sidebarSize, setSidebarSize] = useState(260);
-  const [editorSize, setEditorSize] = useState(320);
+  const [sidebarSize, setSidebarSize] = useState(DEFAULT_SIDEBAR_SIZE);
+  const [stackSize, setStackSize] = useState(DEFAULT_SIDEBAR_SIZE);
+  const [editorSize, setEditorSize] = useState(DEFAULT_EDITOR_SIZE);
   const [dragging, setDragging] = useState(false);
   const [loadKey, setLoadKey] = useState(0);
   const [queryState, setQueryState] = useState<'loading' | 'ready' | 'error'>('loading');
@@ -301,6 +315,7 @@ function Console({ ctx }: { ctx: PluginContext }) {
         const landing = resumeQuery(items);
         const kept = revealQuery(pruneFolders(prefs.folders, new Set(items.map(item => item.id))), landing?.id ?? '');
         savedPreferences.current = { ...prefs, folders: kept };
+        layoutLive.current = savedPreferences.current.layout;
         setFolders(kept);
         setPreferencesReady(true);
         if (kept !== prefs.folders) await persistPreferences(savedPreferences.current);
@@ -332,6 +347,29 @@ function Console({ ctx }: { ctx: PluginContext }) {
     };
   }, [ctx, loadKey, persistPreferences]);
 
+  useLayoutEffect(() => {
+    if (!preferencesReady) return;
+    const apply = () => {
+      if (draggingRef.current) return;
+      const layout = savedPreferences.current.layout;
+      setSidebarSize(clamp(layout.sidebar, SIDEBAR_MIN, sidebarMax(shellRef.current, false)));
+      setStackSize(clamp(layout.stack, SIDEBAR_MIN, sidebarMax(shellRef.current, true)));
+      setEditorSize(clamp(layout.editor, EDITOR_MIN, editorMax(mainRef.current)));
+    };
+    apply();
+    window.addEventListener('resize', apply);
+    return () => window.removeEventListener('resize', apply);
+  }, [narrow, preferencesReady]);
+
+  function commitLayout() {
+    const layout = normalizeLayout(layoutLive.current);
+    layoutLive.current = layout;
+    if (sameLayout(layout, savedPreferences.current.layout)) return;
+    void persistPreferences({ ...savedPreferences.current, layout }).catch((cause: unknown) =>
+      setNotice({ message: describeError(cause) }),
+    );
+  }
+
   useEffect(() => {
     if (!preferencesReady) return;
     const project = projectId.trim();
@@ -339,9 +377,9 @@ function Console({ ctx }: { ctx: PluginContext }) {
     if (project === savedPreferences.current.projectId && place === savedPreferences.current.location) return;
     const handle = setTimeout(() => {
       void persistPreferences({
+        ...savedPreferences.current,
         projectId: project,
         location: place,
-        folders: savedPreferences.current.folders,
       }).catch((cause: unknown) => setNotice({ message: describeError(cause) }));
     }, 600);
     return () => clearTimeout(handle);
@@ -930,7 +968,10 @@ function Console({ ctx }: { ctx: PluginContext }) {
     <div
       ref={shellRef}
       className={narrow ? 'shell narrow' : 'shell'}
-      style={{ ['--sidebar-size' as string]: `${sidebarSize}px`, ['--editor-size' as string]: `${editorSize}px` }}
+      style={{
+        ['--sidebar-size' as string]: `${narrow ? stackSize : sidebarSize}px`,
+        ['--editor-size' as string]: `${editorSize}px`,
+      }}
       data-dragging={dragging ? 'true' : undefined}
     >
       <aside className="sidebar" aria-label="Queries">
@@ -1051,12 +1092,24 @@ function Console({ ctx }: { ctx: PluginContext }) {
       <Splitter
         orientation={narrow ? 'horizontal' : 'vertical'}
         label="Resize queries"
-        value={sidebarSize}
+        value={narrow ? stackSize : sidebarSize}
         min={SIDEBAR_MIN}
         max={SIDEBAR_MAX}
-        onDragStart={() => setDragging(true)}
-        onDragEnd={() => setDragging(false)}
-        onResize={next => setSidebarSize(clamp(next, SIDEBAR_MIN, sidebarMax(shellRef.current, narrow)))}
+        onDragStart={() => {
+          draggingRef.current = true;
+          setDragging(true);
+        }}
+        onDragEnd={() => {
+          draggingRef.current = false;
+          setDragging(false);
+          commitLayout();
+        }}
+        onResize={next => {
+          const size = clamp(next, SIDEBAR_MIN, sidebarMax(shellRef.current, narrow));
+          layoutLive.current = narrow ? { ...layoutLive.current, stack: size } : { ...layoutLive.current, sidebar: size };
+          if (narrow) setStackSize(size);
+          else setSidebarSize(size);
+        }}
       />
 
       <div ref={mainRef} className={selected ? 'main-column' : 'main-column is-welcome'}>
@@ -1243,10 +1296,21 @@ function Console({ ctx }: { ctx: PluginContext }) {
           label="Resize editor and preview"
           value={editorSize}
           min={EDITOR_MIN}
-          max={1200}
-          onDragStart={() => setDragging(true)}
-          onDragEnd={() => setDragging(false)}
-          onResize={next => setEditorSize(clamp(next, EDITOR_MIN, editorMax(mainRef.current)))}
+          max={EDITOR_MAX}
+          onDragStart={() => {
+            draggingRef.current = true;
+            setDragging(true);
+          }}
+          onDragEnd={() => {
+            draggingRef.current = false;
+            setDragging(false);
+            commitLayout();
+          }}
+          onResize={next => {
+            const size = clamp(next, EDITOR_MIN, editorMax(mainRef.current));
+            layoutLive.current = { ...layoutLive.current, editor: size };
+            setEditorSize(size);
+          }}
         />
 
         <section
@@ -1495,8 +1559,10 @@ function Splitter({
         const step = event.shiftKey ? 32 : 16;
         const larger = orientation === 'vertical' ? 'ArrowRight' : 'ArrowDown';
         const smaller = orientation === 'vertical' ? 'ArrowLeft' : 'ArrowUp';
-        if (event.key === larger) onResize(value + step);
-        if (event.key === smaller) onResize(value - step);
+        if (event.key !== larger && event.key !== smaller) return;
+        event.preventDefault();
+        onResize(value + (event.key === larger ? step : -step));
+        onDragEnd();
       }}
     />
   );
