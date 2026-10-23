@@ -171,7 +171,6 @@ function Console({ ctx }: { ctx: PluginContext }) {
   const [description, setDescription] = useState('');
   const [exportTarget, setExportTarget] = useState<ExportTarget | null>(null);
   const [editorMode, setEditorMode] = useState<'sql' | 'description'>('sql');
-  const [deleteArmedId, setDeleteArmedId] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyPick, setHistoryPick] = useState<{ signature: string; base: number | null; head: number }>({
     signature: '',
@@ -484,7 +483,6 @@ function Console({ ctx }: { ctx: PluginContext }) {
   async function openQuery(id: string) {
     if (id === selectedId) return;
     const draft = { id: selectedId, title, sql, description, exportTarget, sqlOrigin };
-    setDeleteArmedId(null);
     try {
       await enqueue(async () => {
         await persistDraft(draft);
@@ -509,7 +507,6 @@ function Console({ ctx }: { ctx: PluginContext }) {
 
   async function onCreate() {
     const draft = { id: selectedId, title, sql, description, exportTarget, sqlOrigin };
-    setDeleteArmedId(null);
     try {
       await enqueue(async () => {
         if (draft.id) await persistDraft(draft);
@@ -533,7 +530,6 @@ function Console({ ctx }: { ctx: PluginContext }) {
 
   async function onDelete(id: string) {
     const draft = { id: selectedId, title, sql, description, exportTarget, sqlOrigin };
-    setDeleteArmedId(null);
     try {
       await enqueue(async () => {
         if (draft.id && draft.id !== id) await persistDraft(draft);
@@ -1011,7 +1007,6 @@ function Console({ ctx }: { ctx: PluginContext }) {
               folders={folders}
               queries={visibleQueries}
               selectedId={selectedId}
-              deleteArmedId={deleteArmedId}
               onOpen={id => {
                 const opened = revealQuery(savedPreferences.current.folders, id);
                 if (opened !== savedPreferences.current.folders) {
@@ -1021,7 +1016,6 @@ function Console({ ctx }: { ctx: PluginContext }) {
                 }
                 void openQuery(id);
               }}
-              onArmDelete={setDeleteArmedId}
               onDelete={id => void onDelete(id)}
               onToggle={id =>
                 void persistPreferences({
