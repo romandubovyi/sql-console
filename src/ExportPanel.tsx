@@ -1,5 +1,6 @@
-import { ExternalLink, FileSpreadsheet, RefreshCw } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { ExternalLink, FileSpreadsheet, RefreshCw, X } from 'lucide-react';
+import { useEffect, useRef, useState, type RefObject } from 'react';
+import { createPortal } from 'react-dom';
 import { loadJobUserEmail, loadServiceAccountEmail, type CredentialJob } from './credential.ts';
 import {
   googleFileUrl,
@@ -23,6 +24,7 @@ interface ExportPanelProps {
   openExternal: (url: string) => void;
   signal: AbortSignal;
   job: CredentialJob | null;
+  sheetRoot: RefObject<HTMLElement | null>;
 }
 
 function rowCount(rows: number): string {
@@ -46,8 +48,9 @@ export function ExportPanel({
   openExternal,
   signal,
   job,
+  sheetRoot,
 }: ExportPanelProps) {
-  const rootRef = useRef<HTMLDivElement>(null);
+  const sheetRef = useRef<HTMLElement>(null);
   const [open, setOpen] = useState(false);
   const [kind, setKind] = useState<ExportKind>(target?.kind ?? 'sheet');
   const [fileId, setFileId] = useState(target?.fileId ?? '');
@@ -63,20 +66,16 @@ export function ExportPanel({
 
   useEffect(() => {
     if (!open) return;
-    const close = (event: PointerEvent) => {
-      const eventTarget = event.target;
-      if (!(eventTarget instanceof Node) || rootRef.current?.contains(eventTarget)) return;
-      if (!exporting) setOpen(false);
-    };
+    sheetRef.current?.focus();
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape' && !exporting) setOpen(false);
     };
-    document.addEventListener('pointerdown', close);
     document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('pointerdown', close);
-      document.removeEventListener('keydown', onKey);
-    };
+    return () => document.removeEventListener('keydown', onKey);
   }, [exporting, open]);
 
   useEffect(() => {
@@ -164,6 +163,10 @@ export function ExportPanel({
   const visible = files.filter(file => file.kind === kind);
   const known = visible.some(file => file.id === fileId);
   const canExport = Boolean(fetchImpl) && fileId !== '' && columns.length > 0 && !busy && !exporting;
+
+  function closeSheet() {
+    if (!exporting) setOpen(false);
+  }
   const linkRejected = linkChecked && link.trim() !== '' && parseGoogleFileLink(link) == null;
   const destination = kind === 'doc' ? 'Document' : 'Spreadsheet';
 
@@ -213,8 +216,154 @@ export function ExportPanel({
     );
   }
 
+  const sheet =
+    open && sheetRoot.current
+      ? createPortal(
+          <div className="sheet-layer">
+            <button className="sheet-backdrop" type="button" aria-label="Close export" disabled={exporting} onClick={closeSheet} />
+            {/* The plugin frame has no allow-forms permission, so this sheet is not a form. */}
+            <aside
+              ref={sheetRef}
+              className="side-sheet"
+              id="export-results"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="export-sheet-title"
+              tabIndex={-1}
+            >
+              <header className="side-sheet-header">
+                <h2 id="export-sheet-title">Export this page</h2>
+                <button className="icon-button" type="button" aria-label="Close export" disabled={exporting} onClick={closeSheet}>
+                  <X size={16} aria-hidden="true" />
+                </button>
+              </header>
+              <div className="side-sheet-body">
+                <p className="sheet-lead">
+                  The rows on this page go to a Google Sheet or Doc saved on this query. The plugin cannot share a file.
+                  A service account only opens a file someone has already shared with it.
+                </p>
+                <div className="editor-mode" role="group" aria-label="Export destination">
+                  <button type="button" aria-pressed={kind === 'sheet'} onClick={() => chooseKind('sheet')}>
+                    Spreadsheet
+                  </button>
+                  <button type="button" aria-pressed={kind === 'doc'} onClick={() => chooseKind('doc')}>
+                    Document
+                  </button>
+                </div>
+                <label>
+                  {destination}
+                  <select
+                    aria-label={destination}
+                    value={fileId}
+                    disabled={exporting}
+                    onChange={event => {
+                      setLink('');
+                      setLinkChecked(false);
+                      publish(kind, event.target.value, sheetName);
+                    }}
+                  >
+                    <option value="">Select a file the service account can open</option>
+                    {fileId && !known ? <option value={fileId}>Linked file</option> : null}
+                    {visible.map(file => (
+                      <option key={file.id} value={file.id}>
+                        {file.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {loadingFiles ? <p className="history-note">Loading files…</p> : null}
+                {!loadingFiles && listNote == null && visible.length === 0 ? (
+                  <p className="history-note">
+                    No {kind === 'doc' ? 'documents' : 'spreadsheets'} are shared with the service account yet.
+                  </p>
+                ) : null}
+                {listNote ? <p className="history-note">{listNote}</p> : null}
+                <label>
+                  Or paste a link
+                  <input
+                    aria-label="Google file link"
+                    value={link}
+                    disabled={exporting}
+                    placeholder="https://docs.google.com/…"
+                    onBlur={() => setLinkChecked(true)}
+                    onChange={event => {
+                      const value = event.target.value;
+                      setLink(value);
+                      setLinkChecked(false);
+                      const parsed = parseGoogleFileLink(value);
+                      if (!parsed) return;
+                      publish(parsed.kind ?? kind, parsed.fileId, sheetName);
+                    }}
+                  />
+                </label>
+                {linkRejected ? <p className="history-note">Paste a Google Sheets or Docs link, or the file id.</p> : null}
+                {kind === 'sheet' ? (
+                  <label>
+                    Sheet
+                    <input
+                      aria-label="Sheet name"
+                      list="export-sheet-names"
+                      value={sheetName}
+                      disabled={exporting}
+                      placeholder={queryTitle.trim() || 'Results'}
+                      onChange={event => publish(kind, fileId, event.target.value)}
+                    />
+                    <datalist id="export-sheet-names">
+                      {titles.map(title => (
+                        <option key={title} value={title} />
+                      ))}
+                    </datalist>
+                  </label>
+                ) : null}
+                {kind === 'sheet' ? (
+                  <p className="history-note">Other queries can use this spreadsheet and write a different sheet.</p>
+                ) : (
+                  <p className="history-note">Each export adds a heading and a table at the end of this document.</p>
+                )}
+                <div className="export-share">
+                  <p>Open the file, choose Share, and add this address as Editor. Then refresh the list.</p>
+                  {email ? (
+                    <code>{email}</code>
+                  ) : (
+                    <p>The address appears here after a query runs. It is also on the Credential in OWOX.</p>
+                  )}
+                  <p>Enable the Sheets, Docs, and Drive APIs on the GCP project that owns the key.</p>
+                </div>
+                {columns.length === 0 ? <p className="history-note">Run the query. Export sends the rows on this page.</p> : null}
+                {message ? (
+                  <p className={message.tone === 'error' ? 'banner' : 'history-note'} role={message.tone === 'error' ? 'alert' : 'status'}>
+                    {message.text}
+                  </p>
+                ) : null}
+              </div>
+              <footer className="side-sheet-footer">
+                <button className="ghost" type="button" disabled={loadingFiles || exporting || !fetchImpl} onClick={() => setReload(current => current + 1)}>
+                  <RefreshCw size={14} aria-hidden="true" />
+                  Refresh
+                </button>
+                <button
+                  className="ghost"
+                  type="button"
+                  disabled={!fileId}
+                  onClick={() => {
+                    if (fileId) void openExternal(googleFileUrl(kind, fileId));
+                  }}
+                >
+                  <ExternalLink size={14} aria-hidden="true" />
+                  Open
+                </button>
+                <button className="primary" type="button" disabled={!canExport} onClick={() => void runExport()}>
+                  {exporting ? 'Exporting…' : 'Export'}
+                </button>
+              </footer>
+            </aside>
+          </div>,
+          sheetRoot.current,
+        )
+      : null;
+
   return (
-    <div className="mart" ref={rootRef}>
+    <>
       <button
         className="ghost preview-action"
         type="button"
@@ -226,124 +375,7 @@ export function ExportPanel({
         <FileSpreadsheet size={12} aria-hidden="true" />
         Export this page
       </button>
-      {open ? (
-        // The plugin frame has no allow-forms permission, so this panel is not a form.
-        <div className="mart-panel export-panel" id="export-results" role="group" aria-label="Export this page">
-          <p className="mart-lead">
-            Export the rows on this page. The plugin cannot share a file. A service account only opens a file someone
-            has already shared with it.
-          </p>
-          <div className="editor-mode" role="group" aria-label="Export destination">
-            <button type="button" aria-pressed={kind === 'sheet'} onClick={() => chooseKind('sheet')}>
-              Spreadsheet
-            </button>
-            <button type="button" aria-pressed={kind === 'doc'} onClick={() => chooseKind('doc')}>
-              Document
-            </button>
-          </div>
-          <label>
-            {destination}
-            <select
-              aria-label={destination}
-              value={fileId}
-              disabled={exporting}
-              onChange={event => {
-                setLink('');
-                setLinkChecked(false);
-                publish(kind, event.target.value, sheetName);
-              }}
-            >
-              <option value="">Select a file the service account can open</option>
-              {fileId && !known ? <option value={fileId}>Linked file</option> : null}
-              {visible.map(file => (
-                <option key={file.id} value={file.id}>
-                  {file.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          {loadingFiles ? <p className="history-note">Loading files…</p> : null}
-          {!loadingFiles && listNote == null && visible.length === 0 ? (
-            <p className="history-note">
-              No {kind === 'doc' ? 'documents' : 'spreadsheets'} are shared with the service account yet.
-            </p>
-          ) : null}
-          {listNote ? <p className="history-note">{listNote}</p> : null}
-          <label>
-            Or paste a link
-            <input
-              aria-label="Google file link"
-              value={link}
-              disabled={exporting}
-              placeholder="https://docs.google.com/…"
-              onBlur={() => setLinkChecked(true)}
-              onChange={event => {
-                const value = event.target.value;
-                setLink(value);
-                setLinkChecked(false);
-                const parsed = parseGoogleFileLink(value);
-                if (!parsed) return;
-                publish(parsed.kind ?? kind, parsed.fileId, sheetName);
-              }}
-            />
-          </label>
-          {linkRejected ? <p className="history-note">Paste a Google Sheets or Docs link, or the file id.</p> : null}
-          {kind === 'sheet' ? (
-            <label>
-              Sheet
-              <input
-                aria-label="Sheet name"
-                list="export-sheet-names"
-                value={sheetName}
-                disabled={exporting}
-                placeholder={queryTitle.trim() || 'Results'}
-                onChange={event => publish(kind, fileId, event.target.value)}
-              />
-              <datalist id="export-sheet-names">
-                {titles.map(title => (
-                  <option key={title} value={title} />
-                ))}
-              </datalist>
-            </label>
-          ) : null}
-          {kind === 'sheet' ? (
-            <p className="history-note">Other queries can use this spreadsheet and write a different sheet.</p>
-          ) : (
-            <p className="history-note">Each export adds a heading and a table at the end of this document.</p>
-          )}
-          <div className="export-share">
-            <p>Open the file, choose Share, and add this address as Editor. Then refresh the list.</p>
-            {email ? <code>{email}</code> : <p>The address appears here after a query runs. It is also on the Credential in OWOX.</p>}
-            <p>Enable the Sheets, Docs, and Drive APIs on the GCP project that owns the key.</p>
-          </div>
-          {columns.length === 0 ? <p className="history-note">Run the query. Export sends the rows on this page.</p> : null}
-          {message ? (
-            <p className={message.tone === 'error' ? 'banner' : 'history-note'} role={message.tone === 'error' ? 'alert' : 'status'}>
-              {message.text}
-            </p>
-          ) : null}
-          <div className="mart-actions">
-            <button className="ghost" type="button" disabled={loadingFiles || exporting || !fetchImpl} onClick={() => setReload(current => current + 1)}>
-              <RefreshCw size={14} aria-hidden="true" />
-              Refresh
-            </button>
-            <button
-              className="ghost"
-              type="button"
-              disabled={!fileId}
-              onClick={() => {
-                if (fileId) void openExternal(googleFileUrl(kind, fileId));
-              }}
-            >
-              <ExternalLink size={14} aria-hidden="true" />
-              Open
-            </button>
-            <button className="primary" type="button" disabled={!canExport} onClick={() => void runExport()}>
-              {exporting ? 'Exporting…' : 'Export'}
-            </button>
-          </div>
-        </div>
-      ) : null}
-    </div>
+      {sheet}
+    </>
   );
 }

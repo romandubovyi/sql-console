@@ -12,7 +12,7 @@ The query runs with the Google Service Account Credential you grant when install
 
 Download CSV saves the rows on the current preview page. A later page is a separate file.
 
-Export this page sends that same preview page to a Google Sheet or Google Doc saved on the query. Several queries can share one spreadsheet and write different sheets. Leave the sheet name empty to use the query title. Re-export replaces that sheet. A document gets a new heading and table at the end, and earlier text stays.
+Export this page opens a side sheet and sends that same preview page to a Google Sheet or Google Doc saved on the query. Several queries can share one spreadsheet and write different sheets. Leave the sheet name empty to use the query title. Re-export replaces that sheet. A document gets a new heading and table at the end, and earlier text stays.
 
 The Credential also requests Sheets, Docs, and read-only Drive file metadata. After this update, select the Credential again. Enable the Google Sheets API, Google Docs API, and Google Drive API on the GCP project that owns the key.
 

@@ -848,6 +848,7 @@ function Console({ ctx }: { ctx: PluginContext }) {
                   ? { projectId: session.projectId, jobId: session.jobId, location: session.location }
                   : null
               }
+              sheetRoot={shellRef}
             />
             <span className="preview-meta">
               {session
