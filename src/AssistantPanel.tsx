@@ -1,7 +1,8 @@
-import { Check, Copy, Play, Save, Send, Sparkles, Square, X } from 'lucide-react';
+import { Check, ChevronDown, ChevronUp, Copy, Play, Save, Send, Sparkles, Square, X } from 'lucide-react';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { segmentReply, SUGGESTED_PROMPTS, type ChatMessage } from './assistant.ts';
 import { formatVersionTime } from './queries.ts';
+import { SQL_TOKEN_CLASSES, tokenizeSql } from './sql-highlight.ts';
 
 interface AssistantPanelProps {
   configured: boolean;
@@ -231,6 +232,21 @@ function renderInline(text: string): ReactNode {
     });
 }
 
+const SQL_PREVIEW_LINES = 5;
+
+function renderSql(sql: string): ReactNode {
+  return tokenizeSql(sql).map((token, index) => {
+    const className = SQL_TOKEN_CLASSES[token.kind];
+    return className ? (
+      <span key={index} className={className}>
+        {token.text}
+      </span>
+    ) : (
+      token.text
+    );
+  });
+}
+
 function SqlBlock({
   sql,
   runEnabled,
@@ -245,6 +261,10 @@ function SqlBlock({
   onSave: (sql: string) => void;
 }) {
   const [copied, setCopied] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const lines = sql.split('\n');
+  const collapsible = lines.length > SQL_PREVIEW_LINES;
+  const visibleSql = collapsible && !expanded ? lines.slice(0, SQL_PREVIEW_LINES).join('\n') : sql;
 
   async function copy() {
     try {
@@ -259,8 +279,23 @@ function SqlBlock({
   return (
     <div className="chat-sql">
       <pre>
-        <code>{sql}</code>
+        <code>{renderSql(visibleSql)}</code>
       </pre>
+      {collapsible && (
+        <button
+          className="chat-sql-expand"
+          type="button"
+          aria-expanded={expanded}
+          onClick={() => setExpanded((value) => !value)}
+        >
+          {expanded ? (
+            <ChevronUp size={12} aria-hidden="true" />
+          ) : (
+            <ChevronDown size={12} aria-hidden="true" />
+          )}
+          {expanded ? 'Show less' : `Show all ${lines.length} lines`}
+        </button>
+      )}
       <div className="chat-sql-actions">
         <button className="ghost" type="button" title="Replace the editor SQL with this query" onClick={() => onApply(sql)}>
           Apply

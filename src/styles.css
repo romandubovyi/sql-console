@@ -10,6 +10,7 @@
   --primary: oklch(0.6179 0.2295 250.87);
   --primary-foreground: oklch(0.985 0 0);
   --danger: oklch(0.55 0.2 25);
+  --warning: oklch(0.6 0.14 65);
   --success: oklch(0.48 0.12 145);
   --sidebar: oklch(0.985 0 0);
   --sidebar-foreground: oklch(0.145 0 0);
@@ -30,6 +31,7 @@
   --muted-foreground: oklch(0.708 0 0);
   --border: oklch(0.269 0 0);
   --danger: oklch(0.75 0.14 25);
+  --warning: oklch(0.82 0.13 85);
   --success: oklch(0.78 0.12 145);
   --sidebar: oklch(0.145 0 0);
   --sidebar-foreground: oklch(0.985 0 0);
@@ -1778,6 +1780,43 @@ td {
   background: var(--muted);
   font-size: 0.8rem;
   line-height: 1.45;
+}
+
+.chat-sql .tok-k {
+  color: var(--primary);
+}
+
+.chat-sql .tok-s {
+  color: var(--success);
+}
+
+.chat-sql .tok-q {
+  color: var(--warning);
+}
+
+.chat-sql .tok-c {
+  color: var(--muted-foreground);
+  font-style: italic;
+}
+
+.chat-sql-expand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
+  width: 100%;
+  padding: 0.3rem 0.65rem;
+  border: 0;
+  border-top: 1px solid var(--border);
+  background: transparent;
+  color: var(--muted-foreground);
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.chat-sql-expand:hover {
+  background: var(--muted);
+  color: var(--foreground);
 }
 
 .chat-sql-actions {
