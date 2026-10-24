@@ -15,6 +15,8 @@ import {
   buildAiChatInput,
   CHATS_COLLECTION,
   normalizeChatThread,
+  RESULT_SAMPLE_ROWS,
+  type AssistantContext,
   type ChatMessage,
   type ChatThread,
 } from './assistant.ts';
@@ -706,6 +708,19 @@ function Console({ ctx }: { ctx: PluginContext }) {
     };
   }, [ctx, selectedId]);
 
+  function assistantContext(): AssistantContext {
+    return {
+      description,
+      result: session
+        ? {
+            columns: session.columns,
+            rows: session.rows.slice(0, RESULT_SAMPLE_ROWS),
+            totalRows: session.totalRows,
+          }
+        : null,
+    };
+  }
+
   async function onAssistantSend(text: string) {
     const queryId = selectedId;
     if (!ctx.actions || !assistantConfigured || !queryId || chatSending) return;
@@ -719,7 +734,7 @@ function Console({ ctx }: { ctx: PluginContext }) {
     const controller = new AbortController();
     chatAbortRef.current = controller;
     try {
-      const input = buildAiChatInput(sql, { messages: withUser });
+      const input = buildAiChatInput(sql, { messages: withUser }, assistantContext());
       if (!input) throw new Error('The chat history cannot be sent. Start a new query thread.');
       const result = await ctx.actions.invoke<AiChatResult>(AI_CHAT_ACTION, input, { signal: controller.signal });
       const withReply = appendChatMessage(

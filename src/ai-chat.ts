@@ -8,12 +8,18 @@ export const MAX_SQL_CHARS = 100000;
 export const MAX_CHAT_MESSAGES = 40;
 export const MAX_MESSAGE_CHARS = 30000;
 const MAX_REPLY_CHARS = 60000;
+const MAX_DESCRIPTION_CHARS = 2500;
+const MAX_RESULT_COLUMNS = 200;
+const MAX_RESULT_ROWS = 50;
+const MAX_RESULT_CELL = 2000;
+/** Cells are truncated to this many characters when the preview is rendered for Claude. */
+const RESULT_CELL_RENDER = 80;
 
 export const SYSTEM_PROMPT = `You are the AI assistant inside the SQL-Console plugin for OWOX Data Marts. You help the member write, understand, and fix BigQuery Standard SQL.
 
 Rules:
 - Answer in the same language the member writes in.
-- The current editor SQL arrives with each request. Treat it as the query being worked on.
+- The current editor SQL arrives with each request. Treat it as the query being worked on. A sample of the last run's result may arrive too: use its column names and values to understand the data, and keep proposed changes consistent with them.
 - When you change the SQL, output the complete updated query in a single \`\`\`sql code block so the member can apply it in one click. Never present a partial query as the proposed change.
 - Keep explanations short and practical. Do not claim you ran or can run the query — you only change its text.
 - If a request is ambiguous, ask one short clarifying question instead of guessing.
@@ -26,8 +32,18 @@ export interface AiChatMessage {
   content: string;
 }
 
+/** A sample of the last run's result: enough to understand columns, not the full table. */
+export interface AiResultContext {
+  columns: string[];
+  rows: string[][];
+  /** Total rows BigQuery reported, when known. */
+  totalRows: number | null;
+}
+
 export interface AiChatInput {
   sql: string;
+  description: string;
+  result: AiResultContext | null;
   messages: AiChatMessage[];
 }
 
@@ -56,12 +72,45 @@ function capText(value: unknown, max: number): string | null {
   return value.length <= max ? value : value.slice(0, max);
 }
 
+function cleanResultCell(value: unknown): string {
+  if (typeof value !== 'string') return '';
+  return value.length <= MAX_RESULT_CELL ? value : value.slice(0, MAX_RESULT_CELL);
+}
+
+/** Parses the optional result sample. A malformed sample is dropped, not fatal. */
+function normalizeResult(value: unknown): AiResultContext | null {
+  const record = asRecord(value);
+  if (!record || !Array.isArray(record.columns)) return null;
+  const columns = record.columns.flatMap(column => {
+    if (typeof column !== 'string') return [];
+    const name = column.trim();
+    if (!name || name.length > 500) return [];
+    return [name];
+  });
+  if (columns.length === 0 || columns.length > MAX_RESULT_COLUMNS) return null;
+  let rows: string[][] = [];
+  if (Array.isArray(record.rows)) {
+    rows = record.rows.flatMap(row => {
+      if (!Array.isArray(row)) return [];
+      return [row.map(cleanResultCell)];
+    });
+    if (rows.length > MAX_RESULT_ROWS) rows = rows.slice(0, MAX_RESULT_ROWS);
+  }
+  const totalRows =
+    typeof record.totalRows === 'number' && Number.isInteger(record.totalRows) && record.totalRows >= 0
+      ? record.totalRows
+      : null;
+  return { columns, rows, totalRows };
+}
+
 /** Validates raw action input even though plugin.json already schema-checks it. */
 export function normalizeAiChatInput(value: unknown): AiChatInput | null {
   const record = asRecord(value);
   if (!record) return null;
   const sql = capText(record.sql, MAX_SQL_CHARS);
   if (sql === null) return null;
+  const description = capText(record.description, MAX_DESCRIPTION_CHARS) ?? '';
+  const result = normalizeResult(record.result);
   if (!Array.isArray(record.messages) || record.messages.length === 0) return null;
   const messages: AiChatMessage[] = [];
   for (const item of record.messages.slice(-MAX_CHAT_MESSAGES)) {
@@ -74,12 +123,43 @@ export function normalizeAiChatInput(value: unknown): AiChatInput | null {
   }
   if (messages.length === 0) return null;
   if (messages[messages.length - 1].role !== 'user') return null;
-  return { sql, messages };
+  return { sql, description, result, messages };
 }
 
-/** The editor SQL rides along with the latest question so every request sees the current query. */
-function withSqlContext(content: string, sql: string): string {
-  return `Current SQL in the editor:\n\`\`\`sql\n${sql}\n\`\`\`\n\n${content}`;
+/** A pipe table of the sample rows, with cells truncated so long values do not drown the prompt. */
+function renderResultRows(columns: string[], rows: string[][]): string {
+  const header = `| ${columns.join(' | ')} |`;
+  const divider = `| ${columns.map(() => '---').join(' | ')} |`;
+  const lines = rows.map(row => {
+    const cells = columns.map((_, index) => {
+      const cell = row[index] ?? '';
+      const oneLine = cell.replace(/[\r\n]+/g, ' ');
+      return oneLine.length > RESULT_CELL_RENDER ? `${oneLine.slice(0, RESULT_CELL_RENDER)}…` : oneLine;
+    });
+    return `| ${cells.join(' | ')} |`;
+  });
+  return [header, divider, ...lines].join('\n');
+}
+
+/** The editor SQL, the member's note, and a result sample ride along with the latest question. */
+function buildUserContext(input: AiChatInput): string {
+  const parts = [`Current SQL in the editor:\n\`\`\`sql\n${input.sql}\n\`\`\``];
+  if (input.description.trim()) {
+    parts.push(`The member's note about this query:\n${input.description.trim()}`);
+  }
+  if (input.result) {
+    const { columns, rows, totalRows } = input.result;
+    if (rows.length > 0) {
+      const total = totalRows !== null ? ` of ${totalRows}` : '';
+      parts.push(
+        `Result of running the query: ${rows.length} sample row${rows.length === 1 ? '' : 's'}${total}.\n${renderResultRows(columns, rows)}`,
+      );
+    } else {
+      parts.push(`The query returns these columns: ${columns.join(', ')}.`);
+    }
+  }
+  parts.push(input.messages[input.messages.length - 1].content);
+  return parts.join('\n\n');
 }
 
 interface AnthropicBody {
@@ -92,7 +172,7 @@ interface AnthropicBody {
 export function buildAnthropicBody(input: AiChatInput): AnthropicBody {
   const messages = input.messages.map((message, index) =>
     index === input.messages.length - 1 && message.role === 'user'
-      ? { role: 'user' as const, content: withSqlContext(message.content, input.sql) }
+      ? { role: 'user' as const, content: buildUserContext(input) }
       : { role: message.role, content: message.content },
   );
   return { model: CLAUDE_MODEL, max_tokens: MAX_OUTPUT_TOKENS, system: SYSTEM_PROMPT, messages };

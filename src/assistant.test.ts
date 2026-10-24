@@ -71,6 +71,8 @@ describe('buildAiChatInput', () => {
     const input = buildAiChatInput('SELECT 1', thread);
     assert.deepEqual(input, {
       sql: 'SELECT 1',
+      description: '',
+      result: null,
       messages: [
         { role: 'user', content: 'a' },
         { role: 'assistant', content: 'b' },
@@ -81,6 +83,16 @@ describe('buildAiChatInput', () => {
       buildAiChatInput('SELECT 1', { messages: [{ role: 'assistant', content: 'b', at: '' }] }),
       null,
     );
+  });
+
+  test('carries the description and a result sample into the action input', () => {
+    const thread = normalizeChatThread({
+      messages: [{ role: 'user', content: 'a', at: '2026-10-23T10:00:00Z' }],
+    });
+    const result = { columns: ['d'], rows: [['2026-10-23']], totalRows: 1 };
+    const input = buildAiChatInput('SELECT d FROM t', thread, { description: 'Note', result });
+    assert.equal(input?.description, 'Note');
+    assert.deepEqual(input?.result, result);
   });
 });
 

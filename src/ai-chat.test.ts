@@ -18,6 +18,8 @@ describe('normalizeAiChatInput', () => {
   test('accepts a well-formed request', () => {
     const input = normalizeAiChatInput({
       sql: 'SELECT 1',
+      description: 'Daily revenue note',
+      result: { columns: ['d', 'revenue'], rows: [['2026-10-23', '42']], totalRows: 1 },
       messages: [
         { role: 'user', content: 'hi' },
         { role: 'assistant', content: 'hello' },
@@ -26,12 +28,35 @@ describe('normalizeAiChatInput', () => {
     });
     assert.deepEqual(input, {
       sql: 'SELECT 1',
+      description: 'Daily revenue note',
+      result: { columns: ['d', 'revenue'], rows: [['2026-10-23', '42']], totalRows: 1 },
       messages: [
         { role: 'user', content: 'hi' },
         { role: 'assistant', content: 'hello' },
         { role: 'user', content: 'add a limit' },
       ],
     });
+  });
+
+  test('defaults the optional context fields', () => {
+    const input = normalizeAiChatInput({ sql: 'SELECT 1', messages: [{ role: 'user', content: 'hi' }] });
+    assert.equal(input?.description, '');
+    assert.equal(input?.result, null);
+  });
+
+  test('drops a malformed result sample instead of failing the request', () => {
+    const input = normalizeAiChatInput({
+      sql: 'SELECT 1',
+      result: { columns: [] },
+      messages: [{ role: 'user', content: 'hi' }],
+    });
+    assert.equal(input?.result, null);
+    const withoutColumns = normalizeAiChatInput({
+      sql: 'SELECT 1',
+      result: { rows: [['a']] },
+      messages: [{ role: 'user', content: 'hi' }],
+    });
+    assert.equal(withoutColumns?.result, null);
   });
 
   test('rejects malformed requests', () => {
@@ -69,6 +94,8 @@ describe('buildAnthropicBody', () => {
   test('puts the current SQL into the latest user message and keeps the model settings', () => {
     const body = buildAnthropicBody({
       sql: 'SELECT 1',
+      description: '',
+      result: null,
       messages: [
         { role: 'user', content: 'first' },
         { role: 'assistant', content: 'answer' },
@@ -86,9 +113,58 @@ describe('buildAnthropicBody', () => {
   });
 
   test('handles a single-message thread', () => {
-    const body = buildAnthropicBody({ sql: 'SELECT 2', messages: [{ role: 'user', content: 'explain' }] });
+    const body = buildAnthropicBody({
+      sql: 'SELECT 2',
+      description: '',
+      result: null,
+      messages: [{ role: 'user', content: 'explain' }],
+    });
     assert.equal(body.messages.length, 1);
     assert.ok(body.messages[0].content.startsWith('Current SQL in the editor:'));
+  });
+
+  test('adds the note and a result sample for the assistant to read', () => {
+    const body = buildAnthropicBody({
+      sql: 'SELECT d, revenue FROM t',
+      description: 'Revenue per day',
+      result: {
+        columns: ['d', 'revenue'],
+        rows: [
+          ['2026-10-22', '10'],
+          ['2026-10-23', '42'],
+        ],
+        totalRows: 120,
+      },
+      messages: [{ role: 'user', content: 'what changed on the 23rd?' }],
+    });
+    const content = body.messages[0].content;
+    assert.ok(content.includes("The member's note about this query:\nRevenue per day"));
+    assert.ok(content.includes('2 sample rows of 120.'));
+    assert.ok(content.includes('| d | revenue |'));
+    assert.ok(content.includes('| 2026-10-23 | 42 |'));
+    assert.ok(content.endsWith('what changed on the 23rd?'));
+  });
+
+  test('lists the columns when no sample rows are available', () => {
+    const body = buildAnthropicBody({
+      sql: 'SELECT 1',
+      description: '',
+      result: { columns: ['a', 'b'], rows: [], totalRows: null },
+      messages: [{ role: 'user', content: 'hi' }],
+    });
+    assert.ok(body.messages[0].content.includes('returns these columns: a, b.'));
+  });
+
+  test('truncates long cell values in the rendered table', () => {
+    const body = buildAnthropicBody({
+      sql: 'SELECT 1',
+      description: '',
+      result: { columns: ['txt'], rows: [['x'.repeat(500)]], totalRows: null },
+      messages: [{ role: 'user', content: 'hi' }],
+    });
+    const content = body.messages[0].content;
+    assert.ok(content.includes(`${'x'.repeat(80)}…`));
+    assert.ok(!content.includes('x'.repeat(200)));
   });
 });
 

@@ -1,6 +1,6 @@
 {
   "name": "SQL-Console",
-  "description": "Check a BigQuery result and send it to a Sheet or Doc, without creating an OWOX report. Import SQL from a data mart or the query a report will run, edit it here, and write a data mart's SQL back. Save the SQL, compare versions, or refresh a sheet daily or weekly even while SQL-Console is closed. An AI assistant rewrites, explains, or fixes the SQL in a chat next to the editor when an Anthropic Credential is selected.",
+  "description": "Check a BigQuery result and send it to a Sheet or Doc, without creating an OWOX report. Import SQL from a data mart or the query a report will run, edit it here, and write a data mart's SQL back. Save the SQL, compare versions, or refresh a sheet daily or weekly even while SQL-Console is closed. An AI assistant rewrites, explains, or fixes the SQL in a chat next to the editor when an Anthropic Credential is selected; each question sends the SQL, the query note, and a small sample of the last result to Claude.",
   "collections": [
     {
       "name": "queries",
@@ -47,6 +47,41 @@
             "sql": {
               "type": "string",
               "maxLength": 100000
+            },
+            "description": {
+              "type": "string",
+              "maxLength": 2500
+            },
+            "result": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["columns"],
+              "properties": {
+                "columns": {
+                  "type": "array",
+                  "maxItems": 200,
+                  "items": {
+                    "type": "string",
+                    "maxLength": 500
+                  }
+                },
+                "rows": {
+                  "type": "array",
+                  "maxItems": 50,
+                  "items": {
+                    "type": "array",
+                    "maxItems": 200,
+                    "items": {
+                      "type": "string",
+                      "maxLength": 2000
+                    }
+                  }
+                },
+                "totalRows": {
+                  "type": ["integer", "null"],
+                  "minimum": 0
+                }
+              }
             },
             "messages": {
               "type": "array",

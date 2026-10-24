@@ -1,7 +1,15 @@
-import { MAX_CHAT_MESSAGES, MAX_MESSAGE_CHARS, normalizeAiChatInput, type AiChatMessage } from './ai-chat.ts';
+import {
+  MAX_CHAT_MESSAGES,
+  MAX_MESSAGE_CHARS,
+  normalizeAiChatInput,
+  type AiChatMessage,
+  type AiResultContext,
+} from './ai-chat.ts';
 
 export const CHATS_COLLECTION = 'chats';
 export const MAX_THREAD_MESSAGES = 100;
+/** How many preview rows are sent to the assistant so it can see the data shape. */
+export const RESULT_SAMPLE_ROWS = 30;
 
 export interface ChatMessage {
   role: 'user' | 'assistant';
@@ -55,10 +63,25 @@ export function toAiMessages(thread: ChatThread): AiChatMessage[] {
   return thread.messages.map(message => ({ role: message.role, content: message.content }));
 }
 
-/** Builds the ai-chat action input from the editor SQL and the stored thread. */
-export function buildAiChatInput(sql: string, thread: ChatThread): { sql: string; messages: AiChatMessage[] } | null {
+/** Everything the page knows about the query, sent along as the assistant's context. */
+export interface AssistantContext {
+  description: string;
+  result: AiResultContext | null;
+}
+
+/** Builds the ai-chat action input from the editor SQL, the stored thread, and the query context. */
+export function buildAiChatInput(
+  sql: string,
+  thread: ChatThread,
+  context: AssistantContext = { description: '', result: null },
+): { sql: string; description: string; result: AiResultContext | null; messages: AiChatMessage[] } | null {
   const recent = thread.messages.slice(-MAX_CHAT_MESSAGES);
-  return normalizeAiChatInput({ sql, messages: recent.map(message => ({ role: message.role, content: message.content })) });
+  return normalizeAiChatInput({
+    sql,
+    description: context.description,
+    result: context.result,
+    messages: recent.map(message => ({ role: message.role, content: message.content })),
+  });
 }
 
 export type ReplySegment = { kind: 'text'; text: string } | { kind: 'sql'; sql: string };
