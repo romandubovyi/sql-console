@@ -75,7 +75,8 @@ select {
   margin: 0;
   padding: 0.6rem 0.75rem;
   border-radius: 0.5rem;
-  background: color-mix(in oklch, var(--danger) 14%, var(--card));
+  border-left: 3px solid var(--danger);
+  background: var(--muted);
 }
 
 .shell {
@@ -321,9 +322,7 @@ button.ghost.save-query {
   gap: 1.5rem;
   overflow: auto;
   padding: 1.25rem 1rem 2rem;
-  background:
-    radial-gradient(ellipse at top, color-mix(in oklch, var(--primary) 10%, transparent), transparent 58%),
-    var(--background);
+  background: var(--background);
 }
 
 .welcome-copy {
@@ -367,7 +366,7 @@ button.ghost.save-query {
   left: 8%;
   right: 8%;
   height: 2px;
-  background: color-mix(in oklch, var(--primary) 45%, var(--border));
+  background: var(--border);
 }
 
 .welcome-flow li {
@@ -400,7 +399,8 @@ button.ghost.save-query {
   width: 1.35rem;
   height: 1.35rem;
   border-radius: 999px;
-  background: color-mix(in oklch, var(--primary) 14%, var(--card));
+  background: var(--sidebar-accent);
+  color: var(--sidebar-accent-foreground);
   font-size: 0.75rem;
   font-weight: 700;
 }
@@ -1735,7 +1735,7 @@ td {
 }
 
 .chat-message.is-user .chat-text {
-  background: color-mix(in oklch, var(--primary) 14%, var(--card));
+  background: var(--sidebar-accent);
 }
 
 .chat-text p {
