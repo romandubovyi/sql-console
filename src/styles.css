@@ -1726,15 +1726,17 @@ td {
 
 .chat-text {
   margin: 0;
-  padding: 0.5rem 0.65rem;
-  border-radius: 0.65rem;
-  background: var(--muted);
+  padding: 0.1rem 0;
   font-size: 0.85rem;
   line-height: 1.45;
   overflow-wrap: anywhere;
 }
 
 .chat-message.is-user .chat-text {
+  max-width: 85%;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 1rem 1rem 0.3rem 1rem;
   background: var(--sidebar-accent);
 }
 
