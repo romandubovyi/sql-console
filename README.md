@@ -38,7 +38,7 @@ The query is one `SELECT` or `WITH`. The credential can run jobs and read tables
 
 ## AI assistant
 
-Open the AI panel next to the editor and chat about the query that is open: rewrite it, explain it, fix an error, add a filter. Each message carries the current SQL, the query's note, and a small sample of the last run's result — column names and values — so the assistant knows what the data looks like. When the answer changes the SQL, it shows the full query with **Apply**, **Run**, and **Save** actions, so the new SQL lands in the editor, runs in the preview, or is kept as a version in one click. Each saved query keeps its own chat history.
+Open the AI panel next to the editor and chat about the query that is open: rewrite it, explain it, fix an error, add a filter. Each message carries the current SQL, the query's note, the BigQuery tables and fields the query touches, and a small sample of the last run's result — column names and values — so the assistant knows the schema and what the data looks like. When the answer changes the SQL, it shows the full query with **Apply**, **Run**, and **Save** actions, so the new SQL lands in the editor, runs in the preview, or is kept as a version in one click. Each saved query keeps its own chat history.
 
 The assistant runs on Claude through the **Anthropic** Credential you add in OWOX Data Marts and select when SQL-Console is installed. The plugin never sees the token: the chat request goes from your browser to the plugin's Cloudflare Worker, the worker calls Anthropic with the Credential handle, and only the reply text comes back.
 

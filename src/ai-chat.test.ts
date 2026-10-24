@@ -20,6 +20,7 @@ describe('normalizeAiChatInput', () => {
       sql: 'SELECT 1',
       description: 'Daily revenue note',
       result: { columns: ['d', 'revenue'], rows: [['2026-10-23', '42']], totalRows: 1 },
+      sources: [{ name: 'p.d.t', title: 'T', fields: [{ name: 'd', type: 'DATE', description: '' }] }],
       messages: [
         { role: 'user', content: 'hi' },
         { role: 'assistant', content: 'hello' },
@@ -30,12 +31,24 @@ describe('normalizeAiChatInput', () => {
       sql: 'SELECT 1',
       description: 'Daily revenue note',
       result: { columns: ['d', 'revenue'], rows: [['2026-10-23', '42']], totalRows: 1 },
+      sources: [{ name: 'p.d.t', title: 'T', fields: [{ name: 'd', type: 'DATE', description: '' }] }],
       messages: [
         { role: 'user', content: 'hi' },
         { role: 'assistant', content: 'hello' },
         { role: 'user', content: 'add a limit' },
       ],
     });
+  });
+
+  test('drops malformed sources and fields instead of failing the request', () => {
+    const input = normalizeAiChatInput({
+      sql: 'SELECT 1',
+      sources: ['nope', { name: 'p.d.t', fields: [{ name: 'a', type: 'INT' }, 'x', { type: 'no-name' }] }],
+      messages: [{ role: 'user', content: 'hi' }],
+    });
+    assert.deepEqual(input?.sources, [
+      { name: 'p.d.t', title: '', fields: [{ name: 'a', type: 'INT', description: '' }] },
+    ]);
   });
 
   test('defaults the optional context fields', () => {
@@ -96,6 +109,7 @@ describe('buildAnthropicBody', () => {
       sql: 'SELECT 1',
       description: '',
       result: null,
+      sources: [],
       messages: [
         { role: 'user', content: 'first' },
         { role: 'assistant', content: 'answer' },
@@ -117,6 +131,7 @@ describe('buildAnthropicBody', () => {
       sql: 'SELECT 2',
       description: '',
       result: null,
+      sources: [],
       messages: [{ role: 'user', content: 'explain' }],
     });
     assert.equal(body.messages.length, 1);
@@ -135,6 +150,7 @@ describe('buildAnthropicBody', () => {
         ],
         totalRows: 120,
       },
+      sources: [],
       messages: [{ role: 'user', content: 'what changed on the 23rd?' }],
     });
     const content = body.messages[0].content;
@@ -145,11 +161,38 @@ describe('buildAnthropicBody', () => {
     assert.ok(content.endsWith('what changed on the 23rd?'));
   });
 
+  test('renders the reachable tables with their fields for the assistant', () => {
+    const body = buildAnthropicBody({
+      sql: 'SELECT d FROM `p.d.events`',
+      description: '',
+      result: null,
+      sources: [
+        {
+          name: 'p.d.events',
+          title: 'Events',
+          fields: [
+            { name: 'd', type: 'DATE', description: 'Day of the event' },
+            { name: 'geo', type: 'RECORD', description: '' },
+            { name: 'geo.country', type: 'STRING', description: '' },
+          ],
+        },
+      ],
+      messages: [{ role: 'user', content: 'group by week' }],
+    });
+    const content = body.messages[0].content;
+    assert.ok(content.includes('BigQuery tables the member can reach, most relevant first:'));
+    assert.ok(content.includes('- p.d.events — Events'));
+    assert.ok(content.includes('- d (DATE): Day of the event'));
+    assert.ok(content.includes('- geo (RECORD)'));
+    assert.ok(content.endsWith('group by week'));
+  });
+
   test('lists the columns when no sample rows are available', () => {
     const body = buildAnthropicBody({
       sql: 'SELECT 1',
       description: '',
       result: { columns: ['a', 'b'], rows: [], totalRows: null },
+      sources: [],
       messages: [{ role: 'user', content: 'hi' }],
     });
     assert.ok(body.messages[0].content.includes('returns these columns: a, b.'));
@@ -160,6 +203,7 @@ describe('buildAnthropicBody', () => {
       sql: 'SELECT 1',
       description: '',
       result: { columns: ['txt'], rows: [['x'.repeat(500)]], totalRows: null },
+      sources: [],
       messages: [{ role: 'user', content: 'hi' }],
     });
     const content = body.messages[0].content;

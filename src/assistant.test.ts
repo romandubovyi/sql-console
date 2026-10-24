@@ -3,12 +3,20 @@ import { describe, test } from 'node:test';
 import {
   appendChatMessage,
   buildAiChatInput,
+  buildSourcesContext,
   emptyChatThread,
+  MAX_CONTEXT_SOURCES,
+  MAX_SOURCE_FIELDS,
   MAX_THREAD_MESSAGES,
   normalizeChatThread,
   segmentReply,
   toAiMessages,
 } from './assistant.ts';
+import type { SqlSource } from './sources.ts';
+
+function source(fqn: string, title: string, fields: SqlSource['fields'] = []): SqlSource {
+  return { id: fqn, title, fullyQualifiedName: fqn, fields };
+}
 
 describe('normalizeChatThread', () => {
   test('accepts a stored thread and drops malformed entries', () => {
@@ -73,6 +81,7 @@ describe('buildAiChatInput', () => {
       sql: 'SELECT 1',
       description: '',
       result: null,
+      sources: [],
       messages: [
         { role: 'user', content: 'a' },
         { role: 'assistant', content: 'b' },
@@ -90,9 +99,65 @@ describe('buildAiChatInput', () => {
       messages: [{ role: 'user', content: 'a', at: '2026-10-23T10:00:00Z' }],
     });
     const result = { columns: ['d'], rows: [['2026-10-23']], totalRows: 1 };
-    const input = buildAiChatInput('SELECT d FROM t', thread, { description: 'Note', result });
+    const input = buildAiChatInput('SELECT d FROM t', thread, { description: 'Note', result, sources: [] });
     assert.equal(input?.description, 'Note');
     assert.deepEqual(input?.result, result);
+  });
+});
+
+describe('buildSourcesContext', () => {
+  test('puts the tables the SQL touches first', () => {
+    const sources = [
+      source('proj.ds.other_table', 'Other'),
+      source('proj.ds.events', 'Events'),
+      source('proj.ds.sessions', 'Sessions'),
+    ];
+    const picked = buildSourcesContext('SELECT * FROM `proj.ds.events` e JOIN proj.ds.sessions s ON 1=1', sources);
+    assert.deepEqual(
+      picked.map(item => item.name),
+      ['proj.ds.events', 'proj.ds.sessions', 'proj.ds.other_table'],
+    );
+  });
+
+  test('matches a bare table name and flattens record fields', () => {
+    const sources = [
+      source('proj.ds.events', 'Events', [
+        { name: 'd', type: 'DATE', description: '', fields: [] },
+        {
+          name: 'geo',
+          type: 'RECORD',
+          description: '',
+          fields: [{ name: 'country', type: 'STRING', description: '', fields: [] }],
+        },
+      ]),
+    ];
+    const picked = buildSourcesContext('SELECT d FROM events', sources);
+    assert.deepEqual(picked[0].fields, [
+      { name: 'd', type: 'DATE', description: '' },
+      { name: 'geo', type: 'RECORD', description: '' },
+      { name: 'geo.country', type: 'STRING', description: '' },
+    ]);
+  });
+
+  test('caps the source count and the fields per source', () => {
+    const many = Array.from({ length: MAX_CONTEXT_SOURCES + 5 }, (_, index) =>
+      source(`proj.ds.t${index}`, `T${index}`),
+    );
+    assert.equal(buildSourcesContext('SELECT 1 FROM proj.ds.t1', many).length, MAX_CONTEXT_SOURCES);
+    const wide = source('proj.ds.wide', 'Wide', [
+      ...Array.from({ length: MAX_SOURCE_FIELDS + 10 }, (_, index) => ({
+        name: `f${index}`,
+        type: 'STRING',
+        description: '',
+        fields: [],
+      })),
+    ]);
+    assert.equal(buildSourcesContext('SELECT 1 FROM proj.ds.wide', [wide])[0].fields.length, MAX_SOURCE_FIELDS);
+  });
+
+  test('returns nothing for empty SQL or an empty catalog', () => {
+    assert.deepEqual(buildSourcesContext('', [source('proj.ds.t', 'T')]), []);
+    assert.deepEqual(buildSourcesContext('SELECT 1', []), []);
   });
 });
 

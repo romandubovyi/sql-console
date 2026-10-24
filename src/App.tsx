@@ -13,6 +13,7 @@ import type { AiChatResult } from './ai-chat.ts';
 import {
   appendChatMessage,
   buildAiChatInput,
+  buildSourcesContext,
   CHATS_COLLECTION,
   normalizeChatThread,
   RESULT_SAMPLE_ROWS,
@@ -718,6 +719,7 @@ function Console({ ctx }: { ctx: PluginContext }) {
             totalRows: session.totalRows,
           }
         : null,
+      sources: buildSourcesContext(sql, sqlSources),
     };
   }
 

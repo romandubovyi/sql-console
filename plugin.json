@@ -1,6 +1,6 @@
 {
   "name": "SQL-Console",
-  "description": "Check a BigQuery result and send it to a Sheet or Doc, without creating an OWOX report. Import SQL from a data mart or the query a report will run, edit it here, and write a data mart's SQL back. Save the SQL, compare versions, or refresh a sheet daily or weekly even while SQL-Console is closed. An AI assistant rewrites, explains, or fixes the SQL in a chat next to the editor when an Anthropic Credential is selected; each question sends the SQL, the query note, and a small sample of the last result to Claude.",
+  "description": "Check a BigQuery result and send it to a Sheet or Doc, without creating an OWOX report. Import SQL from a data mart or the query a report will run, edit it here, and write a data mart's SQL back. Save the SQL, compare versions, or refresh a sheet daily or weekly even while SQL-Console is closed. An AI assistant rewrites, explains, or fixes the SQL in a chat next to the editor when an Anthropic Credential is selected; each question sends the SQL, the query note, the reachable table and field names, and a small sample of the last result to Claude.",
   "collections": [
     {
       "name": "queries",
@@ -80,6 +80,48 @@
                 "totalRows": {
                   "type": ["integer", "null"],
                   "minimum": 0
+                }
+              }
+            },
+            "sources": {
+              "type": "array",
+              "maxItems": 40,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["name"],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "maxLength": 500
+                  },
+                  "title": {
+                    "type": "string",
+                    "maxLength": 500
+                  },
+                  "fields": {
+                    "type": "array",
+                    "maxItems": 150,
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": ["name"],
+                      "properties": {
+                        "name": {
+                          "type": "string",
+                          "maxLength": 300
+                        },
+                        "type": {
+                          "type": "string",
+                          "maxLength": 100
+                        },
+                        "description": {
+                          "type": "string",
+                          "maxLength": 1000
+                        }
+                      }
+                    }
+                  }
                 }
               }
             },

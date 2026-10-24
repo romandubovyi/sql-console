@@ -12,6 +12,8 @@ const MAX_DESCRIPTION_CHARS = 2500;
 const MAX_RESULT_COLUMNS = 200;
 const MAX_RESULT_ROWS = 50;
 const MAX_RESULT_CELL = 2000;
+const MAX_SOURCES = 40;
+const MAX_SOURCE_FIELDS = 150;
 /** Cells are truncated to this many characters when the preview is rendered for Claude. */
 const RESULT_CELL_RENDER = 80;
 
@@ -19,7 +21,7 @@ export const SYSTEM_PROMPT = `You are the AI assistant inside the SQL-Console pl
 
 Rules:
 - Answer in the same language the member writes in.
-- The current editor SQL arrives with each request. Treat it as the query being worked on. A sample of the last run's result may arrive too: use its column names and values to understand the data, and keep proposed changes consistent with them.
+- The current editor SQL arrives with each request. Treat it as the query being worked on. A sample of the last run's result may arrive too: use its column names and values to understand the data, and keep proposed changes consistent with them. A list of BigQuery tables the member can reach may arrive as well; prefer those tables and their field names and types when you propose or fix SQL.
 - When you change the SQL, output the complete updated query in a single \`\`\`sql code block so the member can apply it in one click. Never present a partial query as the proposed change.
 - Keep explanations short and practical. Do not claim you ran or can run the query — you only change its text.
 - If a request is ambiguous, ask one short clarifying question instead of guessing.
@@ -40,10 +42,24 @@ export interface AiResultContext {
   totalRows: number | null;
 }
 
+export interface AiSourceField {
+  name: string;
+  type: string;
+  description: string;
+}
+
+/** A BigQuery table the member can reach, with a flattened, capped field list. */
+export interface AiSourceContext {
+  name: string;
+  title: string;
+  fields: AiSourceField[];
+}
+
 export interface AiChatInput {
   sql: string;
   description: string;
   result: AiResultContext | null;
+  sources: AiSourceContext[];
   messages: AiChatMessage[];
 }
 
@@ -103,6 +119,34 @@ function normalizeResult(value: unknown): AiResultContext | null {
   return { columns, rows, totalRows };
 }
 
+/** Parses the optional schema sample. A malformed sample is dropped, not fatal. */
+function normalizeSources(value: unknown): AiSourceContext[] {
+  if (!Array.isArray(value)) return [];
+  const sources: AiSourceContext[] = [];
+  for (const entry of value.slice(0, MAX_SOURCES)) {
+    const record = asRecord(entry);
+    if (!record || typeof record.name !== 'string' || !record.name.trim()) continue;
+    const fields: AiSourceField[] = [];
+    if (Array.isArray(record.fields)) {
+      for (const fieldEntry of record.fields.slice(0, MAX_SOURCE_FIELDS)) {
+        const field = asRecord(fieldEntry);
+        if (!field || typeof field.name !== 'string' || !field.name.trim()) continue;
+        fields.push({
+          name: field.name,
+          type: typeof field.type === 'string' ? field.type : '',
+          description: typeof field.description === 'string' ? field.description : '',
+        });
+      }
+    }
+    sources.push({
+      name: record.name.trim(),
+      title: typeof record.title === 'string' ? record.title : '',
+      fields,
+    });
+  }
+  return sources;
+}
+
 /** Validates raw action input even though plugin.json already schema-checks it. */
 export function normalizeAiChatInput(value: unknown): AiChatInput | null {
   const record = asRecord(value);
@@ -111,6 +155,7 @@ export function normalizeAiChatInput(value: unknown): AiChatInput | null {
   if (sql === null) return null;
   const description = capText(record.description, MAX_DESCRIPTION_CHARS) ?? '';
   const result = normalizeResult(record.result);
+  const sources = normalizeSources(record.sources);
   if (!Array.isArray(record.messages) || record.messages.length === 0) return null;
   const messages: AiChatMessage[] = [];
   for (const item of record.messages.slice(-MAX_CHAT_MESSAGES)) {
@@ -123,7 +168,7 @@ export function normalizeAiChatInput(value: unknown): AiChatInput | null {
   }
   if (messages.length === 0) return null;
   if (messages[messages.length - 1].role !== 'user') return null;
-  return { sql, description, result, messages };
+  return { sql, description, result, sources, messages };
 }
 
 /** A pipe table of the sample rows, with cells truncated so long values do not drown the prompt. */
@@ -141,11 +186,22 @@ function renderResultRows(columns: string[], rows: string[][]): string {
   return [header, divider, ...lines].join('\n');
 }
 
-/** The editor SQL, the member's note, and a result sample ride along with the latest question. */
+/** The editor SQL, the member's note, schema, and a result sample ride along with the latest question. */
 function buildUserContext(input: AiChatInput): string {
   const parts = [`Current SQL in the editor:\n\`\`\`sql\n${input.sql}\n\`\`\``];
   if (input.description.trim()) {
     parts.push(`The member's note about this query:\n${input.description.trim()}`);
+  }
+  if (input.sources.length > 0) {
+    const blocks = input.sources.map(source => {
+      const header = source.title && source.title !== source.name ? `${source.name} — ${source.title}` : source.name;
+      const lines = source.fields.map(field => {
+        const typed = field.type ? `${field.name} (${field.type})` : field.name;
+        return field.description ? `  - ${typed}: ${field.description}` : `  - ${typed}`;
+      });
+      return [`- ${header}`, ...lines].join('\n');
+    });
+    parts.push(`BigQuery tables the member can reach, most relevant first:\n${blocks.join('\n')}`);
   }
   if (input.result) {
     const { columns, rows, totalRows } = input.result;
